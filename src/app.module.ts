@@ -1,136 +1,130 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { MailerModule } from '@nestjs-modules/mailer';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-import { DataResponseInterceptor } from './common/interceptors/data-response.interceptor';
-import { ConfigModule, ConfigService } from '@nestjs/config';
 import appConfig from './config/app.config';
 import databaseConfig from './config/database.config';
 import mailConfig from './config/mail.config';
 import environmentValidation from './config/environment.validation';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { MailerModule } from '@nestjs-modules/mailer';
-import { ServeStaticModule } from '@nestjs/serve-static';
-import { join } from 'path';
-import { JwtModule } from '@nestjs/jwt';
+import { ALL_ENTITIES } from './database/entities';
 import { GlobalExceptionFilter } from './common/filters';
-import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { DataResponseInterceptor } from './common/interceptors/data-response.interceptor';
 import { CommonModule } from './common/common.module';
-import { CityModule } from './city/city.module';
-import { ReligionModule } from './religion/religion.module';
-import { RishtanagarUsersModule } from './rishtanagar-users/users.module';
-import { RishtanagarAuthenticationModule } from './rishtanagar-auth/authentication.module';
-import * as entities from './common/entities';
+import { AccessModule } from './modules/access/access.module';
+import { StorageModule } from './modules/storage/storage.module';
+import { AuditModule } from './modules/audit/audit.module';
+import { JobsModule } from './modules/jobs/jobs.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { UsersModule } from './modules/users/users.module';
+import { GeoModule } from './modules/geo/geo.module';
+import { OrganizationsModule } from './modules/organizations/organizations.module';
+import { PropertiesModule } from './modules/properties/properties.module';
+import { TenanciesModule } from './modules/tenancies/tenancies.module';
+import { AgreementsModule } from './modules/agreements/agreements.module';
+import { ManagersModule } from './modules/managers/managers.module';
+import { RentModule } from './modules/rent/rent.module';
+import { BillsModule } from './modules/bills/bills.module';
+import { PaymentsModule } from './modules/payments/payments.module';
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
+import { MaintenanceModule } from './modules/maintenance/maintenance.module';
+import { InspectionsModule } from './modules/inspections/inspections.module';
+import { HandoversModule } from './modules/handovers/handovers.module';
+import { DocumentsModule } from './modules/documents/documents.module';
+import { FinancesModule } from './modules/finances/finances.module';
+import { ChatModule } from './modules/chat/chat.module';
+import { AiModule } from './modules/ai/ai.module';
+import { AdminModule } from './modules/admin/admin.module';
+import { DashboardsModule } from './modules/dashboards/dashboards.module';
+import { SupportModule } from './modules/support/support.module';
+import { HealthModule } from './modules/health/health.module';
 
 const ENV = process.env.NODE_ENV;
+
 @Module({
   imports: [
-    /**
-     * Static files
-     */
-    ServeStaticModule.forRoot({
-      rootPath: join(__dirname, '../', 'public'),
-    }),
-    /**
-     * Environment Config
-     */
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env', `.env.${ENV}`].filter(Boolean),
       load: [appConfig, databaseConfig, mailConfig],
       validationSchema: environmentValidation,
     }),
-    /**
-     * TypeORM MySQL config
-     */
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        // ✅ Put console.log here
-        console.log('database config', {
-          host: configService.get<string>('database.host'),
-          port: configService.get<number>('database.port'),
-          user: configService.get<string>('database.username'),
-          password: configService.get<string>('database.password'),
-          database: configService.get<string>('database.database'),
-        });
-
-        return {
-          type: 'mysql',
-          host: configService.get<string>('database.host'),
-          port: configService.get<number>('database.port'),
-          username: configService.get<string>('database.username'),
-          password: configService.get<string>('database.password'),
-          database: configService.get<string>('database.database'),
-          entities: Object.values(entities),
-          synchronize:
-            configService.get<string>('database.synchronize') === 'true',
-          logging: configService.get<string>('database.logging') === 'true',
-        };
-      },
+      useFactory: (config: ConfigService) => ({
+        type: config.get<'postgres'>('database.type') || 'postgres',
+        host: config.get<string>('database.host'),
+        port: config.get<number>('database.port'),
+        username: config.get<string>('database.username'),
+        password: config.get<string>('database.password'),
+        database: config.get<string>('database.database'),
+        entities: ALL_ENTITIES,
+        synchronize: config.get<string>('database.synchronize') === 'true',
+        logging: config.get<string>('database.logging') === 'true',
+      }),
     }),
-
-    /**
-     * JWT Module
-     */
-    JwtModule.register({
-      global: true,
-    }),
-    /**
-     * Nodemailer config
-     */
     MailerModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        transport: {
-          host: configService.get<string>('mail.mailHost'),
-          port: configService.get<number>('mail.mailPort'),
-          secure: true,
-          auth: {
-            user: configService.get<string>('mail.mailAddress'),
-            pass: configService.get<string>('mail.mailPassword'),
+      useFactory: (config: ConfigService) => {
+        const configured = Boolean(config.get('mail.mailAddress') && config.get('mail.mailPassword'));
+        return {
+          transport: configured
+            ? {
+                host: config.get<string>('mail.mailHost'),
+                port: config.get<number>('mail.mailPort'),
+                secure: Number(config.get('mail.mailPort')) === 465,
+                auth: {
+                  user: config.get<string>('mail.mailAddress'),
+                  pass: config.get<string>('mail.mailPassword'),
+                },
+              }
+            : { jsonTransport: true },
+          defaults: {
+            from: `"Air Rental" <${config.get<string>('mail.mailAddress') || 'no-reply@localhost'}>`,
           },
-        },
-        defaults: {
-          from: `"RishtaNagar" <${configService.get<string>('mail.mailAddress')}>`,
-        },
-      }),
+        };
+      },
     }),
-    /**
-     * Application Modules
-     */
     CommonModule,
-    CityModule,
-    ReligionModule,
-    RishtanagarUsersModule,
-    RishtanagarAuthenticationModule,
+    StorageModule,
+    AuditModule,
+    JobsModule,
+    NotificationsModule,
+    AccessModule,
+    AuthModule,
+    UsersModule,
+    GeoModule,
+    OrganizationsModule,
+    PropertiesModule,
+    TenanciesModule,
+    AgreementsModule,
+    ManagersModule,
+    RentModule,
+    BillsModule,
+    PaymentsModule,
+    SubscriptionsModule,
+    MaintenanceModule,
+    InspectionsModule,
+    HandoversModule,
+    DocumentsModule,
+    FinancesModule,
+    ChatModule,
+    AiModule,
+    AdminModule,
+    DashboardsModule,
+    SupportModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
-    /**
-     * Global Exception Filter
-     */
-    {
-      provide: APP_FILTER,
-      useClass: GlobalExceptionFilter,
-    },
-    /**
-     * Global Interceptors
-     */
-    {
-      provide: APP_INTERCEPTOR,
-      useClass: DataResponseInterceptor,
-    },
-    /**
-     * Global Guards - JWT Authentication
-     */
-    {
-      provide: APP_GUARD,
-      useClass: JwtAuthGuard,
-    },
+    { provide: APP_FILTER, useClass: GlobalExceptionFilter },
+    { provide: APP_INTERCEPTOR, useClass: DataResponseInterceptor },
   ],
 })
 export class AppModule {}

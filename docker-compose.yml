@@ -1,0 +1,13 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: air_rental
+      MYSQL_DATABASE: air_rental
+    ports:
+      - "3306:3306"
+    volumes:
+      - air_rental_mysql:/var/lib/mysql
+
+volumes:
+  air_rental_mysql:

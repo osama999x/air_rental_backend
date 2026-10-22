@@ -1,23 +1,24 @@
 import {
-  Injectable,
   CanActivate,
   ExecutionContext,
+  Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { JwtCustomService } from '../providers/jwt.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User } from '../entities';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { JwtCustomService } from '../providers/jwt.service';
+import { AdminAccount, User } from '../../database/entities';
+import { AdminStatus, UserStatus } from '../enums';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly jwtService: JwtCustomService,
-    @InjectRepository(User)
-    private readonly userRepository: Repository<User>,
-    private reflector: Reflector,
+    private readonly reflector: Reflector,
+    @InjectRepository(User) private readonly users: Repository<User>,
+    @InjectRepository(AdminAccount) private readonly admins: Repository<AdminAccount>,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -25,65 +26,48 @@ export class JwtAuthGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-
-    if (isPublic) {
-      return true;
-    }
+    if (isPublic) return true;
 
     const request = context.switchToHttp().getRequest();
-    const url = request.url;
-
-    // Skip authentication for certain routes
-    const skipAuthRoutes = [
-      '/files',
-      '/videos',
-      '/images',
-      '/logs',
-      'refreshToken',
-      'login',
-      '/api/v1/test',
-    ];
-
-    if (skipAuthRoutes.some((route) => url.includes(route))) {
-      return true;
-    }
-
-    const authHeader = request.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new UnauthorizedException('You are not logged in');
-    }
-
-    const token = authHeader.split(' ')[1];
-
-    if (!token) {
-      throw new UnauthorizedException('You are not logged in');
-    }
+    const token = this.readBearer(request.headers.authorization);
+    const adminRoute = String(request.originalUrl || request.url || '').includes('/admin/');
 
     try {
-      const payload = await this.jwtService.authenticate(token);
-
-      if (!payload) {
-        throw new UnauthorizedException('Invalid Token!');
+      const payload = await this.jwtService.verifyAccess(token);
+      if (adminRoute) {
+        if (payload.aud !== 'admin') {
+          throw new UnauthorizedException('Admin authentication is required');
+        }
+        const admin = await this.admins.findOne({ where: { id: payload.sub } });
+        if (!admin || admin.status !== AdminStatus.ACTIVE) {
+          throw new UnauthorizedException('Admin account is not active');
+        }
+        request.admin = admin;
+        request.tokenPayload = payload;
+        return true;
       }
-
-      // Check if user exists
-      const currentUser = await this.userRepository.findOne({
-        where: { id: payload.userId },
-      });
-
-      if (!currentUser) {
-        throw new UnauthorizedException(
-          'User belonging to this token does not exist',
-        );
+      if (payload.aud && payload.aud !== 'user') {
+        throw new UnauthorizedException('User authentication is required');
       }
-
-      // Attach user to request
-      request.user = currentUser;
+      const user = await this.users.findOne({ where: { id: payload.sub } });
+      if (!user || user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
+        throw new UnauthorizedException('Account is not allowed to sign in');
+      }
+      request.user = user;
+      request.tokenPayload = payload;
       return true;
     } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
       throw new UnauthorizedException('Invalid or expired token');
     }
   }
-}
 
+  private readBearer(header?: string): string {
+    if (!header || !header.startsWith('Bearer ')) {
+      throw new UnauthorizedException('You are not logged in');
+    }
+    const token = header.slice(7).trim();
+    if (!token) throw new UnauthorizedException('You are not logged in');
+    return token;
+  }
+}

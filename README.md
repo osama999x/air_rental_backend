@@ -1,73 +1,51 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="200" alt="Nest Logo" /></a>
-</p>
+# Air Rental API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+NestJS and TypeORM API for the Air Rental property and tenancy platform. Owner, tenant, manager, and internal admin clients use the same business rules. Admin routes live under `/api/v1/admin` and use a separate account table.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://coveralls.io/github/nestjs/nest?branch=master" target="_blank"><img src="https://coveralls.io/repos/github/nestjs/nest/badge.svg?branch=master#9" alt="Coverage" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+The existing project already used NestJS, TypeORM, and MySQL, so this backend stays on that stack. Prisma and PostgreSQL were not added as a second data layer.
 
-## Description
+## Setup
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+1. Install dependencies: `npm install`
+2. Create a MySQL database named `air_rental`.
+3. Copy `.env.example` to `.env` and set the database password. Do not commit `.env`.
+4. Start the API: `npm run start:dev`
 
-## Installation
+In development, `DB_SYNCHRONIZE=true` creates tables from the entities, and `SEED_ON_BOOT=true` inserts countries, languages, currencies, subscription tiers, and utility-provider records on an empty database.
+
+Health: `http://localhost:3000/api/v1/health`
+
+Swagger (basic auth from `SWAGGER_USER` / `SWAGGER_PASSWORD`): `http://localhost:3000/api-docs`
+
+Send `Authorization: Bearer <accessToken>` on protected routes. Send `X-Portal-Role: OWNER`, `TENANT`, or `MANAGER` when an account has more than one public role.
+
+## Commands
 
 ```bash
-$ npm install
+npm run start:dev
+npm run start:worker
+npm test
+npm run build
+npm run admin:bootstrap
 ```
 
-## Running the app
+`admin:bootstrap` reads `ADMIN_EMAIL` and `ADMIN_PASSWORD` from the environment. It refuses to run in production unless `ADMIN_BOOTSTRAP_CONFIRM=yes`. There is no default admin account.
 
-```bash
-# development
-$ npm run start
+The API process runs scheduled jobs only outside production. Production should run `npm run start:worker` as a separate process.
 
-# watch mode
-$ npm run start:dev
+## Assumptions
 
-# production mode
-$ npm run start:prod
-```
+- Visible property codes such as `APT-1` are globally unique per property type. A locked sequence allocates them. The permanent id remains a UUID. Ownership changes do not change either identifier.
+- One property can have only one `ACTIVE` tenancy.
+- Email addresses are trimmed and lowercased. A verified Google or Apple email links to the existing user instead of creating a second account.
+- Overpayment is rejected on manual rent entry so the remaining balance cannot go negative. Confirmed payments are the only amounts counted as income.
+- Subscription tier is chosen from the total number of properties with an active tenancy, for the owner and organizations that owner created. That tier's rate applies to every billable unit. The one-time trial waives exactly one unit for 30 days.
+- Tenant insurance, when required, must be verified before a tenancy is activated.
+- Utility providers are stored as manual-upload integrations. No provider is treated as having a live official API.
+- Payment success is accepted only from a verified webhook or the non-production sandbox adapter.
+- AI answers are limited to properties the current user and portal can read. Live completion stays unavailable until `AI_API_KEY` and `AI_BASE_URL` are set.
+- Biometric login stores a device public key. The server never stores Face ID or fingerprint data.
 
-## Test
+## Not configured until credentials exist
 
-```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
-```
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://kamilmysliwiec.com)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](LICENSE).
+Google sign-in, Apple sign-in, email delivery, SMS, push notifications, S3, live card payments, and the AI provider. Those endpoints return a configuration error instead of a fabricated success.

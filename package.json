@@ -1,7 +1,7 @@
 {
-  "name": "incident-reporting-apis",
-  "version": "0.0.1",
-  "description": "",
+  "name": "air-rental",
+  "version": "0.1.0",
+  "description": "Air Rental property and tenancy API",
   "author": "",
   "private": true,
   "license": "UNLICENSED",
@@ -19,7 +19,9 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "doc": "npx @compodoc/compodoc -p tsconfig.json -s --port 3001 --serve --watch -d ./documentation",
-    "generate-module": "node scripts/generateModule.js"
+    "generate-module": "node scripts/generateModule.js",
+    "start:worker": "cross-env PROCESS_ROLE=worker NODE_ENV=development nest start --entryFile worker --watch",
+    "admin:bootstrap": "ts-node -r tsconfig-paths/register src/database/bootstrap-admin.ts"
   },
   "dependencies": {
     "@keyv/redis": "^4.3.1",
@@ -61,6 +63,7 @@
     "mysql2": "^3.15.3",
     "nodemailer": "^6.9.15",
     "otp-generator": "^4.0.1",
+    "pg": "^8.23.1",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.1",
     "typeorm": "^0.3.27"

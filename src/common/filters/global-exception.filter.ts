@@ -29,11 +29,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
-    this.logger.error('ERROR CAUGHT IN GLOBAL EXCEPTION FILTER');
-    this.logger.error('ERROR =>', exception);
-    this.logger.error('ERROR MESSAGE =>', exception?.message);
-    this.logger.error('ERROR NAME =>', exception?.name);
-    this.logger.error('ERROR CODE =>', exception?.code);
+    this.logger.error(`${exception?.name || 'Error'}: ${exception?.message || 'Unknown error'}`);
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal Server Error';
@@ -52,6 +48,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     } else if (exception instanceof AppError) {
       status = exception.statusCode;
       message = exception.message;
+    } else if (exception?.code === 'ER_DUP_ENTRY' || exception?.errno === 1062) {
+      status = HttpStatus.CONFLICT;
+      message = 'A record with this value already exists';
     } else if (exception?.code === '23505') {
       // Duplicate key error
       const error = this.handleDuplicateFieldsDB(exception);

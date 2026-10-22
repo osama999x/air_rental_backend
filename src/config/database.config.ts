@@ -1,23 +1,14 @@
 import { registerAs } from '@nestjs/config';
 
-export default registerAs('database', () => {
-  // console.log('database config', {
-  //   host: process.env.DB_HOST,
-  //   port: process.env.DB_PORT,
-  //   username: process.env.DB_USERNAME,
-  //   password: process.env.DB_PASSWORD,
-  //   database: process.env.DB_DATABASE,
-  // });
-  return {
-    type: 'mysql',
-    host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT, 10) || 3306,
-    username: process.env.DB_USERNAME || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_DATABASE || 'rishtanagar',
-    entities: ['dist/**/*.entity{.ts,.js}'],
-    autoLoadEntities: true,
-    synchronize: process.env.NODE_ENV !== 'production',
-    logging: process.env.NODE_ENV === 'development',
-  };
-});
+export default registerAs('database', () => ({
+  type: 'postgres' as const,
+  host: process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.DB_PORT || '5432', 10),
+  username: process.env.DB_USERNAME || 'postgres',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_DATABASE || 'air_rental',
+  synchronize:
+    process.env.DB_SYNCHRONIZE ||
+    (process.env.NODE_ENV === 'production' ? 'false' : 'true'),
+  logging: process.env.DB_LOGGING || 'false',
+}));

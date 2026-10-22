@@ -1,15 +1,11 @@
-import { Module, Global } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { Global, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { JwtCustomService } from './providers/jwt.service';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { User } from './entities';
 
 @Global()
 @Module({
-  imports: [TypeOrmModule.forFeature([User]), JwtModule],
-  providers: [JwtCustomService, JwtAuthGuard],
-  exports: [JwtCustomService, JwtAuthGuard, TypeOrmModule],
+  imports: [JwtModule.register({})],
+  providers: [JwtCustomService],
+  exports: [JwtCustomService, JwtModule],
 })
 export class CommonModule {}
-

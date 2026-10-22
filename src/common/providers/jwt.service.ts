@@ -9,56 +9,36 @@ export class JwtCustomService {
     private readonly configService: ConfigService,
   ) {}
 
-  async create(data: object, expiresIn?: string): Promise<string> {
-    const jwtSecret = this.configService.get<string>('JWT_SECRET');
-    if (!jwtSecret) {
-      throw new Error('JWT secret key not found in environment variables');
-    }
-
-    const nodeEnv = this.configService.get<string>('NODE_ENV');
-    if (nodeEnv === 'development') {
-      expiresIn = this.configService.get<string>('ACCESS_TOKEN_EXPIRES_IN');
-    }
-
-    const expiredIn = expiresIn || '3600';
-
+  async signAccess(data: Record<string, unknown>, expiresIn?: number): Promise<string> {
     return this.jwtService.sign(data, {
-      secret: jwtSecret,
-      expiresIn: Number(expiredIn),
+      secret: this.secret('JWT_SECRET'),
+      expiresIn: expiresIn || this.seconds('ACCESS_TOKEN_EXPIRES_IN', 900),
     });
   }
 
-  async authenticate(token: string): Promise<any> {
-    try {
-      const jwtSecret = this.configService.get<string>('JWT_SECRET');
-      if (!jwtSecret) {
-        throw new Error('JWT secret key not found in environment variables');
-      }
-
-      return this.jwtService.verify(token, { secret: jwtSecret });
-    } catch (error) {
-      console.log('JWT authentication error: ', error);
-      throw error;
-    }
+  async signRefresh(data: Record<string, unknown>, expiresIn?: number): Promise<string> {
+    return this.jwtService.sign(data, {
+      secret: this.secret('REFRESH_KEY'),
+      expiresIn: expiresIn || this.seconds('REFRESH_KEY_EXPIRES_IN', 60 * 60 * 24 * 30),
+    });
   }
 
-  async signRefreshToken(data: object, expiresIn?: string): Promise<string> {
-    const refreshKey = this.configService.get<string>('REFRESH_KEY');
-    if (!refreshKey) {
-      throw new Error('JWT refresh key not found in environment variables');
-    }
+  async verifyAccess(token: string): Promise<any> {
+    return this.jwtService.verify(token, { secret: this.secret('JWT_SECRET') });
+  }
 
-    const nodeEnv = this.configService.get<string>('NODE_ENV');
-    if (nodeEnv === 'development') {
-      expiresIn = this.configService.get<string>('REFRESH_KEY_EXPIRES_IN');
-    }
+  async verifyRefresh(token: string): Promise<any> {
+    return this.jwtService.verify(token, { secret: this.secret('REFRESH_KEY') });
+  }
 
-    const refreshTokenExpiresIn = expiresIn || '36000';
+  private secret(key: string): string {
+    const value = this.configService.get<string>(key);
+    if (!value) throw new Error(`${key} is not configured`);
+    return value;
+  }
 
-    return this.jwtService.sign(data, {
-      secret: refreshKey,
-      expiresIn: Number(refreshTokenExpiresIn),
-    });
+  private seconds(key: string, fallback: number): number {
+    const value = Number(this.configService.get(key));
+    return Number.isFinite(value) && value > 0 ? value : fallback;
   }
 }
-

@@ -22,15 +22,25 @@ export class DataResponseInterceptor implements NestInterceptor {
         const httpContext = context.switchToHttp();
         const response = httpContext.getResponse();
         const statusCode = response.statusCode;
+        if (
+          data === null ||
+          data === undefined ||
+          typeof data !== 'object' ||
+          Buffer.isBuffer(data) ||
+          data instanceof Uint8Array ||
+          typeof data.getStream === 'function'
+        ) {
+          return data;
+        }
 
         const message = data.message;
-        delete data?.message;
+        const payload = Object.prototype.hasOwnProperty.call(data, 'data') ? data.data : data;
 
         return {
           statusCode,
-          apiVersion: this.configService.get('appConfig.apiVersion'),
-          message,
-          data: data.data,
+          apiVersion: this.configService.get('appConfig.apiVersion') || '1.0.0',
+          message: message || 'OK',
+          data: payload,
         };
       }),
     );

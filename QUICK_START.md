@@ -1,4 +1,8 @@
-# 🚀 Quick Start Guide - RishtaNagar NestJS Application
+# Air Rental API
+
+The current setup instructions are in [README.md](README.md). This file previously described the RishtaNagar matrimonial template and is no longer the source of setup steps.
+
+# Previous RishtaNagar notes
 
 ## ✅ Migration Complete!
 
