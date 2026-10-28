@@ -1,9 +1,10 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { MediaKind, PortalRole, PropertyStatus, PropertyType } from '../../common/enums';
 import { City, Country, Property, PropertyCodeSequence, PropertyMedia, PropertyOwnershipHistory, Tenancy } from '../../database/entities';
 import { AccessService } from '../access/access.service';
+import { canReadProperty, hasPermission } from '../access/access.policy';
 import { AuditService } from '../audit/audit.service';
 import { StorageService } from '../storage/storage.service';
 import { allocatePropertyCode } from './property-code';
@@ -252,6 +253,21 @@ export class PropertiesService {
     if (!file) throw new NotFoundException('Property media was not found');
     await this.access.assertProperty(userId, role, file.propertyId);
     return this.storage.deliver(file.storageKey, file.mimeType, file.originalName || 'file', file.mimeType.startsWith('image/'));
+  }
+
+  async deleteMedia(userId: string, role: PortalRole | null, id: string) {
+    const file = await this.media.findOne({ where: { id } });
+    if (!file) throw new NotFoundException('Property media was not found');
+    const actor = await this.access.actor(userId, role);
+    if (!canReadProperty(actor, file.propertyId, new Date())) {
+      throw new NotFoundException('Property media was not found');
+    }
+    if (!hasPermission(actor, file.propertyId, 'PROPERTY_MANAGE', new Date())) {
+      throw new ForbiddenException('You do not have permission for this action');
+    }
+    await this.storage.remove(file.storageKey);
+    await this.media.delete({ id: file.id });
+    return { id: file.id };
   }
 
   private async usableMedia(files: PropertyMedia[]) {

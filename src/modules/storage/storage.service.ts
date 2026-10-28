@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { promises as fs } from 'fs';
 import { dirname, resolve } from 'path';
 import { fullFileStream } from '../../common/utils/file-stream';
+import { apiPublicOrigin } from '../../common/utils/public-origin';
 import { randomToken } from '../../common/utils/tokens.util';
 import { assertAllowedUpload, readEncodedFile, storedFileName } from '../../common/utils/files.util';
 
@@ -86,9 +87,9 @@ export class StorageService {
   }
 
   publicUrl(downloadPath: string): string {
-    const configured = String(process.env.APP_PUBLIC_URL || '').trim().replace(/\/$/, '');
+    const configured = this.config.get<string>('APP_PUBLIC_URL') || process.env.APP_PUBLIC_URL;
     const port = Number(this.config.get('PORT')) || 3009;
-    const origin = configured || `http://179.236.65.153:${port}`;
+    const origin = apiPublicOrigin(configured, port);
     return `${origin}/api/v1/${downloadPath.replace(/^\//, '')}`;
   }
 

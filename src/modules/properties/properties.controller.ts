@@ -122,6 +122,11 @@ export class PropertiesController {
     return this.properties.downloadMedia(user.id, role, id);
   }
 
+  @Delete('media/:id')
+  async deleteMedia(@CurrentUser() user: User, @ActiveRole() role: PortalRole, @Param('id') id: string) {
+    return new ResponseDto('Media deleted', await this.properties.deleteMedia(user.id, role, id));
+  }
+
   @Get(':id')
   async get(@CurrentUser() user: User, @ActiveRole() role: PortalRole, @Param('id') id: string) {
     return new ResponseDto('Property', await this.properties.get(user.id, role, id));
