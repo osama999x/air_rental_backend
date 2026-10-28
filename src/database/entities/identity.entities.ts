@@ -53,6 +53,12 @@ export class User extends BaseEntity {
 
   @Column({ type: 'varchar', length: 16, nullable: true })
   preferredPortalRole?: PortalRole | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  avatarStorageKey?: string | null;
+
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  avatarMimeType?: string | null;
 }
 
 @Entity('auth_identities')

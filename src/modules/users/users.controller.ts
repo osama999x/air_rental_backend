@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Patch, Post } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString, Length } from 'class-validator';
-import { CurrentUser } from '../../common/decorators';
+import { Body, Controller, Get, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { IsEnum, IsIn, IsOptional, IsString, IsUUID, Length } from 'class-validator';
+import { ActiveRole, CurrentUser } from '../../common/decorators';
 import { ResponseDto } from '../../common/dto/response';
 import { AccountCategory, PortalRole } from '../../common/enums';
 import { User } from '../../database/entities';
@@ -9,11 +10,47 @@ import { AuthService } from '../auth/auth.service';
 import { UsersService } from './users.service';
 
 class UpdateMeDto {
+  @ApiPropertyOptional({ example: 'Ayesha' })
   @IsOptional() @IsString() @Length(1, 120) firstName?: string;
+
+  @ApiPropertyOptional({ example: 'Khan' })
   @IsOptional() @IsString() @Length(1, 120) lastName?: string;
-  @IsOptional() @IsString() phone?: string;
-  @IsOptional() @IsString() preferredLanguage?: string;
-  @IsOptional() @IsString() timezone?: string;
+
+  @ApiPropertyOptional({ example: '+923001234567' })
+  @IsOptional() @IsString() @Length(0, 32) phone?: string;
+
+  @ApiPropertyOptional({ example: 'en' })
+  @IsOptional() @IsString() @Length(2, 12) preferredLanguage?: string;
+
+  @ApiPropertyOptional({ example: 'Asia/Karachi' })
+  @IsOptional() @IsString() @Length(1, 64) timezone?: string;
+
+  @ApiPropertyOptional({ enum: AccountCategory })
+  @IsOptional() @IsEnum(AccountCategory) category?: AccountCategory;
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional() @IsUUID() organizationId?: string;
+
+  @ApiPropertyOptional({ example: 'Ayesha Khan' })
+  @IsOptional() @IsString() @Length(1, 180) displayName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional() @IsString() @Length(0, 255) currentAddress?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional() @IsString() @Length(0, 120) emergencyContactName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional() @IsString() @Length(0, 32) emergencyContactPhone?: string;
+
+  @ApiPropertyOptional({ type: 'string', format: 'binary', description: 'Profile photo. JPEG, PNG, or WebP.' })
+  @IsOptional() file?: string;
+
+  @ApiPropertyOptional({ description: 'Base64 image, or a data URL, when file is omitted.' })
+  @IsOptional() @IsString() data?: string;
+
+  @ApiPropertyOptional({ example: 'me.jpg' })
+  @IsOptional() @IsString() fileName?: string;
 }
 
 class ProfileDto {
@@ -44,9 +81,22 @@ export class UsersController {
     return new ResponseDto('Profile', await this.users.me(user.id));
   }
 
+  @Get('me/avatar')
+  avatar(@CurrentUser() user: User) {
+    return this.users.avatar(user.id);
+  }
+
   @Patch('me')
-  async update(@CurrentUser() user: User, @Body() dto: UpdateMeDto) {
-    return new ResponseDto('Profile updated', await this.users.update(user.id, dto));
+  @ApiConsumes('multipart/form-data', 'application/json')
+  @ApiBody({ type: UpdateMeDto })
+  @UseInterceptors(FileInterceptor('file'))
+  async update(
+    @CurrentUser() user: User,
+    @ActiveRole() role: PortalRole,
+    @Body() dto: UpdateMeDto,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    return new ResponseDto('Profile updated', await this.users.edit(user.id, role, dto, file));
   }
 
   @Patch('me/owner-profile')
