@@ -1,9 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, StreamableFile } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { MediaKind, PortalRole, PropertyStatus, PropertyType } from '../../common/enums';
-import { assertAllowedUpload } from '../../common/utils/files.util';
-import { Country, Property, PropertyCodeSequence, PropertyMedia, PropertyOwnershipHistory, Tenancy } from '../../database/entities';
+import { assertAllowedUpload, safeFileName } from '../../common/utils/files.util';
+import { City, Country, Property, PropertyCodeSequence, PropertyMedia, PropertyOwnershipHistory, Tenancy } from '../../database/entities';
 import { AccessService } from '../access/access.service';
 import { AuditService } from '../audit/audit.service';
 import { StorageService } from '../storage/storage.service';
@@ -18,6 +18,7 @@ export class PropertiesService {
     @InjectRepository(Property) private readonly properties: Repository<Property>,
     @InjectRepository(PropertyMedia) private readonly media: Repository<PropertyMedia>,
     @InjectRepository(Country) private readonly countries: Repository<Country>,
+    @InjectRepository(City) private readonly cities: Repository<City>,
     @InjectRepository(Tenancy) private readonly tenancies: Repository<Tenancy>,
     private readonly dataSource: DataSource,
     private readonly access: AccessService,
@@ -50,7 +51,7 @@ export class PropertiesService {
     }
     const country = await this.countries.findOne({ where: { id: input.countryId } });
     if (!country) throw new BadRequestException('Select a valid country. Country is not inferred from coordinates.');
-    return this.dataSource.transaction(async (manager) => {
+    const created = await this.dataSource.transaction(async (manager) => {
       const visibleCode = await allocatePropertyCode({
         lock: async (type) => {
           let row = await manager.findOne(PropertyCodeSequence, {
@@ -100,6 +101,8 @@ export class PropertiesService {
       });
       return property;
     });
+    const [presented] = await this.withPlaces([created]);
+    return presented;
   }
 
   async list(userId: string, role: PortalRole | null, query: {
@@ -133,15 +136,45 @@ export class PropertiesService {
       .skip((query.page - 1) * query.pageSize)
       .take(query.pageSize)
       .getManyAndCount();
-    return { items, total, page: query.page, pageSize: query.pageSize, pageCount: Math.max(1, Math.ceil(total / query.pageSize)) };
+    return {
+      items: await this.withPlaces(items),
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
+      pageCount: Math.max(1, Math.ceil(total / query.pageSize)),
+    };
   }
 
   async get(userId: string, role: PortalRole | null, id: string) {
     await this.access.assertProperty(userId, role, id);
     const property = await this.properties.findOne({ where: { id, archivedAt: IsNull() } });
     if (!property) throw new NotFoundException('Property was not found');
-    const photos = await this.media.find({ where: { propertyId: id } });
-    return { ...property, media: photos };
+    const photos = await this.media.find({ where: { propertyId: id }, order: { createdAt: 'ASC' } });
+    const [presented] = await this.withPlaces([property]);
+    return { ...presented, media: photos.map((file) => this.mediaView(file)) };
+  }
+
+  async archive(userId: string, role: PortalRole | null, id: string) {
+    await this.access.assertPermission(userId, role, id, 'PROPERTY_MANAGE');
+    const property = await this.properties.findOne({ where: { id, archivedAt: IsNull() } });
+    if (!property) throw new NotFoundException('Property was not found');
+    const active = await this.tenancies.count({ where: { propertyId: id, status: TenancyStatus.ACTIVE } });
+    if (active > 0) {
+      throw new BadRequestException('End the active tenancy before deleting this property');
+    }
+    const archivedAt = new Date();
+    await this.properties.update({ id }, { archivedAt });
+    await this.audit.record({
+      actorUserId: userId,
+      actorType: 'USER',
+      activeRole: role,
+      action: 'property.archived',
+      entityType: 'property',
+      entityId: id,
+      propertyId: id,
+      metadata: { visibleCode: property.visibleCode },
+    });
+    return { id, archivedAt };
   }
 
   async update(userId: string, role: PortalRole | null, id: string, patch: Partial<Property>) {
@@ -178,19 +211,57 @@ export class PropertiesService {
       propertyId: id,
       metadata: { newOwnerUserId },
     });
-    return this.properties.findOne({ where: { id } });
+    const updated = await this.properties.findOne({ where: { id } });
+    if (!updated) throw new NotFoundException('Property was not found');
+    const [presented] = await this.withPlaces([updated]);
+    return presented;
   }
 
   async addMedia(userId: string, role: PortalRole | null, id: string, file: Express.Multer.File, kind: MediaKind) {
     await this.access.assertPermission(userId, role, id, 'PROPERTY_MANAGE');
+    if (!file) throw new BadRequestException('Choose a file');
     assertAllowedUpload(file.mimetype, file.size, uploadLimitBytes(this.config));
     const storageKey = await this.storage.save(file.buffer, file.originalname);
-    return this.media.save(this.media.create({
+    const saved = await this.media.save(this.media.create({
       propertyId: id,
       storageKey,
       mimeType: file.mimetype,
       kind,
       originalName: file.originalname,
+    }));
+    return this.mediaView(saved);
+  }
+
+  async downloadMedia(userId: string, role: PortalRole | null, id: string) {
+    const file = await this.media.findOne({ where: { id } });
+    if (!file) throw new NotFoundException('Property media was not found');
+    await this.access.assertProperty(userId, role, file.propertyId);
+    const filename = safeFileName(file.originalName || 'file');
+    const inline = file.mimeType.startsWith('image/');
+    return new StreamableFile(this.storage.open(file.storageKey), {
+      type: file.mimeType,
+      disposition: `${inline ? 'inline' : 'attachment'}; filename="${filename}"`,
+    });
+  }
+
+  private mediaView(file: PropertyMedia) {
+    return {
+      ...file,
+      downloadPath: `properties/media/${file.id}/download`,
+    };
+  }
+
+  private async withPlaces<T extends { countryId: string; cityId?: string | null }>(items: T[]) {
+    const countryIds = [...new Set(items.map((item) => item.countryId))];
+    const cityIds = [...new Set(items.map((item) => item.cityId).filter((id): id is string => Boolean(id)))];
+    const countries = countryIds.length ? await this.countries.find({ where: { id: In(countryIds) } }) : [];
+    const cities = cityIds.length ? await this.cities.find({ where: { id: In(cityIds) } }) : [];
+    const countryById = new Map(countries.map((country) => [country.id, { id: country.id, name: country.name }]));
+    const cityById = new Map(cities.map((city) => [city.id, { id: city.id, name: city.name }]));
+    return items.map((item) => ({
+      ...item,
+      country: countryById.get(item.countryId) ?? null,
+      city: item.cityId ? cityById.get(item.cityId) ?? null : null,
     }));
   }
 
