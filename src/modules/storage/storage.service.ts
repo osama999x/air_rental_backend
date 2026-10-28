@@ -26,7 +26,7 @@ export class StorageService {
     data?: string;
     fileName?: string;
     required?: boolean;
-  }): Promise<{ storageKey: string; mimeType: string; originalName: string } | null> {
+  }): Promise<{ storageKey: string; mimeType: string; originalName: string; size: number } | null> {
     let buffer: Buffer | undefined;
     let mimeType = '';
     let originalName = '';
@@ -53,11 +53,30 @@ export class StorageService {
     } catch (error) {
       throw new BadRequestException(error instanceof Error ? error.message : 'Unsupported file type');
     }
+    const sniffed = sniffMime(buffer, mimeType);
     return {
       storageKey: await this.save(buffer, originalName),
-      mimeType,
+      mimeType: sniffed,
       originalName: originalName.slice(0, 160),
+      size: buffer.length,
     };
+  }
+
+  async exists(key: string): Promise<boolean> {
+    return (await this.stat(key)) !== null;
+  }
+
+  async stat(key: string): Promise<{ size: number } | null> {
+    try {
+      const info = await fs.stat(this.resolve(key));
+      return info.isFile() ? { size: info.size } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async remove(key: string): Promise<void> {
+    await fs.rm(this.resolve(key), { force: true });
   }
 
   publicUrl(downloadPath: string): string {
@@ -98,4 +117,13 @@ export class StorageService {
 
 export function uploadLimitBytes(config: ConfigService): number {
   return (Number(config.get('UPLOAD_MAX_MB')) || 10) * 1024 * 1024;
+}
+
+function sniffMime(buffer: Buffer, mimeType: string): string {
+  if (mimeType && mimeType !== 'application/octet-stream') return mimeType;
+  if (buffer.length > 3 && buffer[0] === 0xff && buffer[1] === 0xd8) return 'image/jpeg';
+  if (buffer.length > 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+  if (buffer.length > 12 && buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
+  if (buffer.length > 4 && buffer.subarray(0, 4).toString('ascii') === '%PDF') return 'application/pdf';
+  return mimeType || 'application/octet-stream';
 }

@@ -153,8 +153,9 @@ export class PropertiesService {
     const property = await this.properties.findOne({ where: { id, archivedAt: IsNull() } });
     if (!property) throw new NotFoundException('Property was not found');
     const photos = await this.media.find({ where: { propertyId: id }, order: { createdAt: 'ASC' } });
+    const live = await this.usableMedia(photos);
     const [presented] = await this.withPlaces([property]);
-    return { ...presented, media: photos.map((file) => this.mediaView(file)) };
+    return { ...presented, media: live.map((file) => this.mediaView(file)) };
   }
 
   async archive(userId: string, role: PortalRole | null, id: string) {
@@ -232,6 +233,11 @@ export class PropertiesService {
     await this.access.assertPermission(userId, role, id, 'PROPERTY_MANAGE');
     const stored = await this.storage.keep({ file, data, fileName });
     if (!stored) throw new BadRequestException('Choose a file');
+    const duplicate = await this.sameRecentFile(id, stored.originalName, stored.size);
+    if (duplicate) {
+      await this.storage.remove(stored.storageKey);
+      return this.mediaView(duplicate);
+    }
     const saved = await this.media.save(this.media.create({
       propertyId: id,
       storageKey: stored.storageKey,
@@ -246,12 +252,51 @@ export class PropertiesService {
     const file = await this.media.findOne({ where: { id } });
     if (!file) throw new NotFoundException('Property media was not found');
     await this.access.assertProperty(userId, role, file.propertyId);
+    const info = await this.storage.stat(file.storageKey);
+    if (!info) throw new NotFoundException('Property media was not found');
     const filename = safeFileName(file.originalName || 'file');
     const inline = file.mimeType.startsWith('image/');
     return new StreamableFile(this.storage.open(file.storageKey), {
-      type: file.mimeType,
+      type: file.mimeType || 'application/octet-stream',
       disposition: `${inline ? 'inline' : 'attachment'}; filename="${filename}"`,
+      length: info.size,
     });
+  }
+
+  private async usableMedia(files: PropertyMedia[]) {
+    const live: PropertyMedia[] = [];
+    const seen = new Set<string>();
+    for (const file of files) {
+      const info = await this.storage.stat(file.storageKey);
+      if (!info) {
+        await this.media.delete({ id: file.id });
+        continue;
+      }
+      const key = `${file.originalName || ''}:${info.size}`;
+      if (seen.has(key)) {
+        await this.media.delete({ id: file.id });
+        await this.storage.remove(file.storageKey);
+        continue;
+      }
+      seen.add(key);
+      live.push(file);
+    }
+    return live;
+  }
+
+  private async sameRecentFile(propertyId: string, originalName: string, size: number) {
+    const recent = await this.media.find({
+      where: { propertyId, originalName },
+      order: { createdAt: 'DESC' },
+      take: 8,
+    });
+    const cutoff = Date.now() - 3 * 60 * 1000;
+    for (const row of recent) {
+      if (new Date(row.createdAt).getTime() < cutoff) continue;
+      const info = await this.storage.stat(row.storageKey);
+      if (info?.size === size) return row;
+    }
+    return null;
   }
 
   private mediaView(file: PropertyMedia) {
