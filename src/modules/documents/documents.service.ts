@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, OnModuleInit, StreamableFile } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DocumentOwnerType, InsuranceHolder, PortalRole, VerificationStatus } from '../../common/enums';
@@ -135,10 +135,7 @@ export class DocumentsService implements OnModuleInit {
       propertyId: document.propertyId,
       tenancyId: document.tenancyId,
     });
-    return new StreamableFile(this.storage.open(document.storageKey), {
-      type: document.mimeType,
-      disposition: `attachment; filename="${document.title}"`,
-    });
+    return this.storage.deliver(document.storageKey, document.mimeType, document.title || 'document', false);
   }
 
   async addInsurance(userId: string, role: PortalRole | null, input: {

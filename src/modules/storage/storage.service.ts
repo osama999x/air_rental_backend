@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, StreamableFile } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createReadStream, promises as fs } from 'fs';
+import { promises as fs } from 'fs';
 import { dirname, resolve } from 'path';
+import { Readable } from 'stream';
 import { randomToken } from '../../common/utils/tokens.util';
 import { assertAllowedUpload, readEncodedFile, storedFileName } from '../../common/utils/files.util';
 
@@ -86,8 +87,24 @@ export class StorageService {
     return `${origin}/api/v1/${downloadPath.replace(/^\//, '')}`;
   }
 
-  open(key: string) {
-    return createReadStream(this.resolve(key));
+  async read(key: string): Promise<Buffer | null> {
+    try {
+      const bytes = await fs.readFile(this.resolve(key));
+      return bytes.length ? bytes : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async deliver(key: string, mimeType: string, filename: string, inline: boolean) {
+    const bytes = await this.read(key);
+    if (!bytes) throw new NotFoundException('File was not found');
+    const safe = storedFileName(filename, mimeType);
+    return new StreamableFile(Readable.from([bytes]), {
+      type: mimeType || 'application/octet-stream',
+      disposition: `${inline ? 'inline' : 'attachment'}; filename="${safe}"`,
+      length: bytes.length,
+    });
   }
 
   resolve(key: string): string {

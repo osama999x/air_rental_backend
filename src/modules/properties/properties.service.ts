@@ -1,8 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException, StreamableFile } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { MediaKind, PortalRole, PropertyStatus, PropertyType } from '../../common/enums';
-import { safeFileName } from '../../common/utils/files.util';
 import { City, Country, Property, PropertyCodeSequence, PropertyMedia, PropertyOwnershipHistory, Tenancy } from '../../database/entities';
 import { AccessService } from '../access/access.service';
 import { AuditService } from '../audit/audit.service';
@@ -252,15 +251,7 @@ export class PropertiesService {
     const file = await this.media.findOne({ where: { id } });
     if (!file) throw new NotFoundException('Property media was not found');
     await this.access.assertProperty(userId, role, file.propertyId);
-    const info = await this.storage.stat(file.storageKey);
-    if (!info) throw new NotFoundException('Property media was not found');
-    const filename = safeFileName(file.originalName || 'file');
-    const inline = file.mimeType.startsWith('image/');
-    return new StreamableFile(this.storage.open(file.storageKey), {
-      type: file.mimeType || 'application/octet-stream',
-      disposition: `${inline ? 'inline' : 'attachment'}; filename="${filename}"`,
-      length: info.size,
-    });
+    return this.storage.deliver(file.storageKey, file.mimeType, file.originalName || 'file', file.mimeType.startsWith('image/'));
   }
 
   private async usableMedia(files: PropertyMedia[]) {

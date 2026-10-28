@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, Repository } from 'typeorm';
 import { City, Country, Currency, Language, MeasurementUnit, SubscriptionPlan, UtilityProvider } from '../../database/entities';
 import { IntegrationCapability } from '../../common/enums';
+import { RedisService } from '../redis/redis.service';
 import { DEFAULT_TIERS } from '../subscriptions/subscription.rules';
 import { CITIES, COUNTRIES, CURRENCIES, LANGUAGES, UNITS, UTILITY_PROVIDERS } from './reference.data';
 
@@ -18,6 +19,7 @@ export class GeoService implements OnModuleInit {
     @InjectRepository(SubscriptionPlan) private readonly plans: Repository<SubscriptionPlan>,
     @InjectRepository(UtilityProvider) private readonly providers: Repository<UtilityProvider>,
     private readonly config: ConfigService,
+    private readonly redis: RedisService,
   ) {}
 
   async onModuleInit() {
@@ -78,30 +80,32 @@ export class GeoService implements OnModuleInit {
   }
 
   async searchCountries(search?: string) {
-    return this.countries.find({
-      where: search ? { name: ILike(`%${search}%`) } : {},
+    const term = (search || '').trim().slice(0, 60).toLowerCase();
+    return this.redis.remember(`geo:countries:${term}`, 600, () => this.countries.find({
+      where: term ? { name: ILike(`%${term}%`) } : {},
       order: { name: 'ASC' },
       take: 50,
-    });
+    }));
   }
 
   async searchCities(countryId: string, search?: string) {
-    return this.cities.find({
-      where: search ? { countryId, name: ILike(`%${search}%`) } : { countryId },
+    const term = (search || '').trim().slice(0, 60).toLowerCase();
+    return this.redis.remember(`geo:cities:${countryId}:${term}`, 600, () => this.cities.find({
+      where: term ? { countryId, name: ILike(`%${term}%`) } : { countryId },
       order: { name: 'ASC' },
       take: 100,
-    });
+    }));
   }
 
   languagesList() {
-    return this.languages.find({ order: { name: 'ASC' } });
+    return this.redis.remember('geo:languages', 600, () => this.languages.find({ order: { name: 'ASC' } }));
   }
 
   currenciesList() {
-    return this.currencies.find({ order: { code: 'ASC' } });
+    return this.redis.remember('geo:currencies', 600, () => this.currencies.find({ order: { code: 'ASC' } }));
   }
 
   unitsList() {
-    return this.units.find({ order: { code: 'ASC' } });
+    return this.redis.remember('geo:units', 600, () => this.units.find({ order: { code: 'ASC' } }));
   }
 }

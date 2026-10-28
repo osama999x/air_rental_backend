@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, StreamableFile } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MaintenanceStatus, PortalRole } from '../../common/enums';
@@ -154,10 +154,7 @@ export class MaintenanceService {
     const request = await this.requests.findOne({ where: { id: file.requestId } });
     if (!request) throw new NotFoundException('Maintenance request was not found');
     await this.access.assertProperty(userId, role, request.propertyId);
-    return new StreamableFile(this.storage.open(file.storageKey), {
-      type: file.mimeType,
-      disposition: `attachment; filename="${file.originalName}"`,
-    });
+    return this.storage.deliver(file.storageKey, file.mimeType, file.originalName || 'attachment', false);
   }
 
   private presentAttachment(file: MaintenanceAttachment) {

@@ -1,9 +1,10 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { Public } from '../../common/decorators';
 import { ResponseDto } from '../../common/dto/response';
+import { RedisService } from '../redis/redis.service';
 import { StorageService } from '../storage/storage.service';
 import { PaymentsService } from '../payments/payments.service';
 import { AiService } from '../ai/ai.service';
@@ -16,6 +17,7 @@ export class HealthController {
     private readonly storage: StorageService,
     private readonly payments: PaymentsService,
     private readonly ai: AiService,
+    private readonly redis: RedisService,
   ) {}
 
   @Public()
@@ -28,7 +30,9 @@ export class HealthController {
   @Get('ready')
   async ready() {
     await this.dataSource.query('SELECT 1');
-    return new ResponseDto('Ready', { status: 'ready', database: 'up' });
+    const redisUp = await this.redis.ping();
+    if (!redisUp) throw new ServiceUnavailableException('Redis is not reachable');
+    return new ResponseDto('Ready', { status: 'ready', database: 'up', redis: 'up' });
   }
 
   @Public()
@@ -38,6 +42,7 @@ export class HealthController {
       storage: this.storage.status(),
       payments: this.payments.status(),
       ai: this.ai.status(),
+      redis: this.redis.status(),
     });
   }
 }

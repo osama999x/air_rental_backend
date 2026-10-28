@@ -22,6 +22,11 @@ export default Joi.object({
   DB_SYNCHRONIZE: Joi.string().valid('true', 'false').optional(),
   DB_LOGGING: Joi.string().valid('true', 'false').default('false'),
 
+  REDIS_HOST: Joi.string().default('localhost'),
+  REDIS_PORT: Joi.number().default(6379),
+  REDIS_PASSWORD: Joi.string().allow('').optional(),
+  REDIS_DATABASE: Joi.number().default(0),
+
   JWT_SECRET: Joi.string().default('development-only-access-secret'),
   REFRESH_KEY: Joi.string().default('development-only-refresh-secret'),
   ACCESS_TOKEN_EXPIRES_IN: Joi.number().default(900),

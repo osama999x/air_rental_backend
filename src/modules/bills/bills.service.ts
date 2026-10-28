@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, OnModuleInit, StreamableFile } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import {
@@ -296,10 +296,7 @@ export class BillsService implements OnModuleInit {
     const proof = await this.proofs.findOne({ where: { id: proofId } });
     if (!proof) throw new NotFoundException('Bill payment proof was not found');
     await this.visibleBill(userId, role, proof.billId);
-    return new StreamableFile(this.storage.open(proof.storageKey), {
-      type: proof.mimeType || 'application/octet-stream',
-      disposition: 'attachment; filename="bill-proof"',
-    });
+    return this.storage.deliver(proof.storageKey, proof.mimeType || 'application/octet-stream', 'bill-proof', false);
   }
 
   private async visibleBill(userId: string, role: PortalRole | null, id: string) {

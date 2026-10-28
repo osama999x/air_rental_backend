@@ -2,6 +2,7 @@ import { INestApplication, Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { json, urlencoded } from 'express';
 import rateLimit from 'express-rate-limit';
+import { RedisService } from '../modules/redis/redis.service';
 import {
   API_PREFIX,
   BODY_LIMIT,
@@ -12,6 +13,7 @@ import {
 export function configureApp(
   app: INestApplication,
   config: ConfigService,
+  redis: RedisService,
 ): void {
   const logger = new Logger('Http');
 
@@ -49,6 +51,7 @@ export function configureApp(
       max: RATE_LIMIT_MAX,
       standardHeaders: true,
       legacyHeaders: false,
+      store: redis.rateLimitStore(),
       handler: (req, res) => {
         logger.warn(`Rate limit exceeded for ${req.ip}`);
         res.status(429).json({

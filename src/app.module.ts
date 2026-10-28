@@ -41,6 +41,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { DashboardsModule } from './modules/dashboards/dashboards.module';
 import { SupportModule } from './modules/support/support.module';
 import { HealthModule } from './modules/health/health.module';
+import { RedisModule } from './modules/redis/redis.module';
 
 const ENV = process.env.NODE_ENV;
 
@@ -91,6 +92,7 @@ const ENV = process.env.NODE_ENV;
       },
     }),
     CommonModule,
+    RedisModule,
     StorageModule,
     AuditModule,
     JobsModule,

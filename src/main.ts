@@ -4,11 +4,12 @@ import { Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { configureApp } from './bootstrap/configure-app';
 import { setupSwagger } from './bootstrap/swagger';
+import { RedisService } from './modules/redis/redis.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
-  configureApp(app, config);
+  configureApp(app, config, app.get(RedisService));
   const swagger = setupSwagger(app, config);
   const port = config.get<number>('PORT') || 3000;
   await app.listen(port);
