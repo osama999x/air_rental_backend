@@ -1,5 +1,5 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators';
 import { ResponseDto } from '../../common/dto/response';
 import { GeoService } from './geo.service';
@@ -11,12 +11,14 @@ export class GeoController {
 
   @Public()
   @Get('countries')
+  @ApiQuery({ name: 'search', required: false })
   async countries(@Query('search') search?: string) {
     return new ResponseDto('Countries', await this.geo.searchCountries(search));
   }
 
   @Public()
   @Get('countries/:countryId/cities')
+  @ApiQuery({ name: 'search', required: false })
   async cities(@Param('countryId') countryId: string, @Query('search') search?: string) {
     return new ResponseDto('Cities', await this.geo.searchCities(countryId, search));
   }

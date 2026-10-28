@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiProperty, ApiPropertyOptional, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
 import { ActiveRole, CurrentUser } from '../../common/decorators';
 import { ResponseDto } from '../../common/dto/response';
@@ -16,6 +16,9 @@ class FetchBillDto {
 
 class ProofDto {
   @IsString() amount: string;
+
+  @ApiProperty({ type: 'string', format: 'binary' })
+  file: string;
 }
 
 class DecisionDto {
@@ -36,6 +39,10 @@ class CreateBillDto {
   @IsOptional() @IsString() dueDate?: string;
   @IsOptional() @IsString() externalReference?: string;
   @IsEnum(ResponsibilityMode) responsibilityMode: ResponsibilityMode;
+
+  @ApiPropertyOptional({ type: 'string', format: 'binary' })
+  @IsOptional()
+  file?: string;
 }
 
 @ApiTags('Bills')
@@ -80,6 +87,8 @@ export class BillsController {
   }
 
   @Post('bills')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ type: CreateBillDto })
   @UseInterceptors(FileInterceptor('file'))
   async create(
     @CurrentUser() user: User,
@@ -91,6 +100,7 @@ export class BillsController {
   }
 
   @Get('bills')
+  @ApiQuery({ name: 'propertyId', required: false, schema: { type: 'string', format: 'uuid' } })
   async list(@CurrentUser() user: User, @ActiveRole() role: PortalRole, @Query('propertyId') propertyId?: string) {
     return new ResponseDto('Bills', await this.bills.list(user.id, role, propertyId));
   }
@@ -101,6 +111,8 @@ export class BillsController {
   }
 
   @Post('bills/:id/proofs')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ type: ProofDto })
   @UseInterceptors(FileInterceptor('file'))
   async proof(
     @CurrentUser() user: User,

@@ -10,7 +10,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiProperty, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { IsDateString, IsOptional, IsString, IsUUID } from 'class-validator';
 import { Response } from 'express';
 import { ActiveRole, CurrentUser } from '../../common/decorators';
@@ -28,6 +28,9 @@ class GenerateRentDto {
 
 class ProofDto {
   @IsString() amount: string;
+
+  @ApiProperty({ type: 'string', format: 'binary' })
+  file: string;
 }
 
 class DecisionDto {
@@ -61,11 +64,14 @@ export class RentController {
   }
 
   @Get('obligations')
+  @ApiQuery({ name: 'tenancyId', required: false, schema: { type: 'string', format: 'uuid' } })
   async list(@CurrentUser() user: User, @ActiveRole() role: PortalRole, @Query('tenancyId') tenancyId?: string) {
     return new ResponseDto('Rent obligations', await this.rent.list(user.id, role, tenancyId));
   }
 
   @Post('obligations/:id/proofs')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ type: ProofDto })
   @UseInterceptors(FileInterceptor('file'))
   async proof(
     @CurrentUser() user: User,

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiProperty, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
 import { ActiveRole, CurrentUser } from '../../common/decorators';
 import { ResponseDto } from '../../common/dto/response';
@@ -15,6 +15,9 @@ class UploadDocumentDto {
   @IsString() title: string;
   @IsOptional() @IsString() expiresAt?: string;
   @IsOptional() @IsString() identityNumber?: string;
+
+  @ApiProperty({ type: 'string', format: 'binary' })
+  file: string;
 }
 
 class InsuranceDto {
@@ -35,6 +38,8 @@ export class DocumentsController {
   constructor(private readonly documents: DocumentsService) {}
 
   @Get('documents')
+  @ApiQuery({ name: 'propertyId', required: false, schema: { type: 'string', format: 'uuid' } })
+  @ApiQuery({ name: 'tenancyId', required: false, schema: { type: 'string', format: 'uuid' } })
   async list(
     @CurrentUser() user: User,
     @ActiveRole() role: PortalRole,
@@ -45,6 +50,7 @@ export class DocumentsController {
   }
 
   @Get('insurance')
+  @ApiQuery({ name: 'propertyId', required: true, schema: { type: 'string', format: 'uuid' } })
   async insuranceList(
     @CurrentUser() user: User,
     @ActiveRole() role: PortalRole,
@@ -54,6 +60,8 @@ export class DocumentsController {
   }
 
   @Post('documents')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ type: UploadDocumentDto })
   @UseInterceptors(FileInterceptor('file'))
   async upload(
     @CurrentUser() user: User,

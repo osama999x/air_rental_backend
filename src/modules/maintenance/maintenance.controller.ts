@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
 import { ActiveRole, CurrentUser } from '../../common/decorators';
 import { ResponseDto } from '../../common/dto/response';
@@ -15,6 +15,10 @@ class CreateMaintenanceDto {
   @IsString() category: string;
   @IsOptional() @IsString() priority?: string;
   @IsOptional() @IsString() preferredAccessTime?: string;
+
+  @ApiPropertyOptional({ type: 'string', format: 'binary' })
+  @IsOptional()
+  file?: string;
 }
 
 class TransitionDto {
@@ -30,6 +34,8 @@ export class MaintenanceController {
   constructor(private readonly maintenance: MaintenanceService) {}
 
   @Post()
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ type: CreateMaintenanceDto })
   @UseInterceptors(FileInterceptor('file'))
   async create(
     @CurrentUser() user: User,
@@ -56,6 +62,14 @@ export class MaintenanceController {
   }
 
   @Post(':id/attachments')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
   @UseInterceptors(FileInterceptor('file'))
   async attach(
     @CurrentUser() user: User,

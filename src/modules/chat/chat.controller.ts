@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiPropertyOptional, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { IsOptional, IsString, IsUUID } from 'class-validator';
 import { CurrentUser } from '../../common/decorators';
 import { ResponseDto } from '../../common/dto/response';
@@ -9,6 +9,10 @@ import { ChatService } from './chat.service';
 
 class SendDto {
   @IsOptional() @IsString() body?: string;
+
+  @ApiPropertyOptional({ type: 'string', format: 'binary' })
+  @IsOptional()
+  file?: string;
 }
 
 @ApiTags('Chat')
@@ -23,11 +27,14 @@ export class ChatController {
   }
 
   @Get('threads/:threadId/messages')
+  @ApiQuery({ name: 'page', required: false, schema: { type: 'integer', default: 1 } })
   async messages(@CurrentUser() user: User, @Param('threadId') threadId: string, @Query('page') page = 1) {
     return new ResponseDto('Messages', await this.chat.listMessages(user.id, threadId, Number(page) || 1));
   }
 
   @Post('threads/:threadId/messages')
+  @ApiConsumes('multipart/form-data', 'application/json')
+  @ApiBody({ type: SendDto })
   @UseInterceptors(FileInterceptor('file'))
   async send(
     @CurrentUser() user: User,

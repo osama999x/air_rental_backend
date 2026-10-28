@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Allow, IsEmail, IsIn, IsString, MinLength } from 'class-validator';
 import { Request } from 'express';
 import { Public } from '../../common/decorators';
@@ -53,6 +53,8 @@ export class AdminController {
   }
 
   @Get('users')
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'page', required: false, schema: { type: 'integer', default: 1 } })
   async users(@Req() req: Request & { admin: AdminAccount }, @Query('search') search?: string, @Query('page') page = 1) {
     return new ResponseDto('Users', await this.admin.usersList(req.admin.id, search, Number(page) || 1));
   }
@@ -63,11 +65,13 @@ export class AdminController {
   }
 
   @Get('organizations')
+  @ApiQuery({ name: 'page', required: false, schema: { type: 'integer', default: 1 } })
   async organizations(@Req() req: Request & { admin: AdminAccount }, @Query('page') page = 1) {
     return new ResponseDto('Organizations', await this.admin.listOrganizations(req.admin.id, Number(page) || 1));
   }
 
   @Get('properties')
+  @ApiQuery({ name: 'page', required: false, schema: { type: 'integer', default: 1 } })
   async properties(@Req() req: Request & { admin: AdminAccount }, @Query('page') page = 1) {
     return new ResponseDto('Properties', await this.admin.listProperties(req.admin.id, Number(page) || 1));
   }
@@ -93,6 +97,7 @@ export class AdminController {
   }
 
   @Get('audit-logs')
+  @ApiQuery({ name: 'page', required: false, schema: { type: 'integer', default: 1 } })
   async audit(@Req() req: Request & { admin: AdminAccount }, @Query('page') page = 1) {
     return new ResponseDto('Audit logs', await this.admin.searchAudit(req.admin.id, Number(page) || 1));
   }

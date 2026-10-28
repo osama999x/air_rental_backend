@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
 import { ActiveRole, CurrentUser } from '../../common/decorators';
 import { ResponseDto } from '../../common/dto/response';
@@ -41,6 +41,7 @@ export class HandoversController {
   }
 
   @Get('handovers')
+  @ApiQuery({ name: 'tenancyId', required: true, schema: { type: 'string', format: 'uuid' } })
   async list(@CurrentUser() user: User, @ActiveRole() role: PortalRole, @Query('tenancyId') tenancyId: string) {
     return new ResponseDto('Handovers', await this.handovers.list(user.id, role, tenancyId));
   }

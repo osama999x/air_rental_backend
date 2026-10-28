@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { IsDateString, IsOptional, IsString, IsUUID } from 'class-validator';
 import { ActiveRole, CurrentUser } from '../../common/decorators';
 import { ResponseDto } from '../../common/dto/response';
@@ -23,6 +23,8 @@ export class FinancesController {
   constructor(private readonly finances: FinancesService) {}
 
   @Get('properties/:propertyId')
+  @ApiQuery({ name: 'from', required: false, example: '2026-01-01' })
+  @ApiQuery({ name: 'to', required: false, example: '2026-12-31' })
   async summary(
     @CurrentUser() user: User,
     @ActiveRole() role: PortalRole,
