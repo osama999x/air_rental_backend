@@ -1,8 +1,13 @@
-import { BadRequestException, Injectable, NotFoundException, StreamableFile } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  StreamableFile,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { promises as fs } from 'fs';
 import { dirname, resolve } from 'path';
-import { Readable } from 'stream';
+import { fullFileStream } from '../../common/utils/file-stream';
 import { randomToken } from '../../common/utils/tokens.util';
 import { assertAllowedUpload, readEncodedFile, storedFileName } from '../../common/utils/files.util';
 
@@ -99,9 +104,10 @@ export class StorageService {
   async deliver(key: string, mimeType: string, filename: string, inline: boolean) {
     const bytes = await this.read(key);
     if (!bytes) throw new NotFoundException('File was not found');
-    const safe = storedFileName(filename, mimeType);
-    return new StreamableFile(Readable.from([bytes]), {
-      type: mimeType || 'application/octet-stream',
+    const type = sniffMime(bytes, mimeType);
+    const safe = storedFileName(filename, type);
+    return new StreamableFile(fullFileStream(bytes), {
+      type: type || 'application/octet-stream',
       disposition: `${inline ? 'inline' : 'attachment'}; filename="${safe}"`,
       length: bytes.length,
     });
