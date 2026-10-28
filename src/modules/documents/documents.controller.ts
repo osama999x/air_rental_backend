@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiBody, ApiConsumes, ApiProperty, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiProperty, ApiPropertyOptional, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
 import { ActiveRole, CurrentUser } from '../../common/decorators';
 import { ResponseDto } from '../../common/dto/response';
@@ -16,8 +16,16 @@ class UploadDocumentDto {
   @IsOptional() @IsString() expiresAt?: string;
   @IsOptional() @IsString() identityNumber?: string;
 
-  @ApiProperty({ type: 'string', format: 'binary' })
-  file: string;
+  @ApiPropertyOptional({ type: 'string', format: 'binary' })
+  file?: string;
+
+  @ApiPropertyOptional({ description: 'Base64 file or a data URL. Used when file is omitted.' })
+  @IsOptional() @IsString()
+  data?: string;
+
+  @ApiPropertyOptional({ example: 'lease.pdf' })
+  @IsOptional() @IsString()
+  fileName?: string;
 }
 
 class InsuranceDto {

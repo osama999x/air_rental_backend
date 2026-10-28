@@ -10,7 +10,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiBody, ApiConsumes, ApiProperty, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiProperty, ApiPropertyOptional, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { IsDateString, IsOptional, IsString, IsUUID } from 'class-validator';
 import { Response } from 'express';
 import { ActiveRole, CurrentUser } from '../../common/decorators';
@@ -29,8 +29,16 @@ class GenerateRentDto {
 class ProofDto {
   @IsString() amount: string;
 
-  @ApiProperty({ type: 'string', format: 'binary' })
-  file: string;
+  @ApiPropertyOptional({ type: 'string', format: 'binary' })
+  file?: string;
+
+  @ApiPropertyOptional({ description: 'Base64 file or a data URL. Used when file is omitted.' })
+  @IsOptional() @IsString()
+  data?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional() @IsString()
+  fileName?: string;
 }
 
 class DecisionDto {
@@ -80,7 +88,7 @@ export class RentController {
     @Body() dto: ProofDto,
     @UploadedFile() file: Express.Multer.File,
   ) {
-    return new ResponseDto('Proof submitted', await this.rent.submitProof(user.id, role, id, dto.amount, file));
+    return new ResponseDto('Proof submitted', await this.rent.submitProof(user.id, role, id, dto.amount, file, dto.data, dto.fileName));
   }
 
   @Post('proofs/:id/approve')

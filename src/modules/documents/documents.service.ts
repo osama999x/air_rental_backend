@@ -1,16 +1,14 @@
 import { BadRequestException, Injectable, NotFoundException, OnModuleInit, StreamableFile } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DocumentOwnerType, InsuranceHolder, PortalRole, VerificationStatus } from '../../common/enums';
-import { assertAllowedUpload } from '../../common/utils/files.util';
 import { toIsoDate } from '../../common/utils/dates.util';
 import { DocumentRecord, InsurancePolicy, Property } from '../../database/entities';
 import { AccessService } from '../access/access.service';
 import { AuditService } from '../audit/audit.service';
 import { JobsService } from '../jobs/jobs.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { StorageService, uploadLimitBytes } from '../storage/storage.service';
+import { StorageService } from '../storage/storage.service';
 
 @Injectable()
 export class DocumentsService implements OnModuleInit {
@@ -23,7 +21,6 @@ export class DocumentsService implements OnModuleInit {
     private readonly storage: StorageService,
     private readonly jobs: JobsService,
     private readonly notifications: NotificationsService,
-    private readonly config: ConfigService,
   ) {}
 
   onModuleInit() {
@@ -37,22 +34,26 @@ export class DocumentsService implements OnModuleInit {
     title: string;
     expiresAt?: string;
     identityNumber?: string;
-  }, file: Express.Multer.File) {
-    if (!file) throw new BadRequestException('A file is required');
+    data?: string;
+    fileName?: string;
+  }, file?: Express.Multer.File) {
+    if (!input.title?.trim() || input.title.trim().length > 180) {
+      throw new BadRequestException('Document title must be 180 characters or less');
+    }
     if (input.propertyId) {
       await this.access.assertPermission(userId, role, input.propertyId, 'DOCUMENT_MANAGE', input.tenancyId);
     }
-    assertAllowedUpload(file.mimetype, file.size, uploadLimitBytes(this.config));
-    const storageKey = await this.storage.save(file.buffer, file.originalname);
+    const stored = await this.storage.keep({ file, data: input.data, fileName: input.fileName || input.title });
+    if (!stored) throw new BadRequestException('A file is required');
     const document = await this.documents.save(this.documents.create({
       ownerType: input.tenancyId ? DocumentOwnerType.TENANCY : DocumentOwnerType.PROPERTY,
       ownerId: input.tenancyId || input.propertyId || userId,
       propertyId: input.propertyId,
       tenancyId: input.tenancyId,
       category: input.category,
-      title: input.title,
-      storageKey,
-      mimeType: file.mimetype,
+      title: input.title.trim().slice(0, 180),
+      storageKey: stored.storageKey,
+      mimeType: stored.mimeType,
       uploadedByUserId: userId,
       verificationStatus: VerificationStatus.UNVERIFIED,
       expiresAt: input.expiresAt,

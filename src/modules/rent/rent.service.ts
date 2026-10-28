@@ -4,11 +4,9 @@ import {
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { LedgerStatus, PortalRole, ProofStatus, RentStatus } from '../../common/enums';
-import { assertAllowedUpload } from '../../common/utils/files.util';
 import { toIsoDate } from '../../common/utils/dates.util';
 import {
   clampRemaining,
@@ -27,7 +25,7 @@ import { AccessService } from '../access/access.service';
 import { AuditService } from '../audit/audit.service';
 import { JobsService } from '../jobs/jobs.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { uploadLimitBytes, StorageService } from '../storage/storage.service';
+import { StorageService } from '../storage/storage.service';
 import { confirmedIncome, deriveRentStatus } from './rent.rules';
 import { buildDedupeKey } from '../notifications/notification.rules';
 
@@ -46,7 +44,6 @@ export class RentService implements OnModuleInit {
     private readonly notifications: NotificationsService,
     private readonly jobs: JobsService,
     private readonly storage: StorageService,
-    private readonly config: ConfigService,
   ) {}
 
   onModuleInit() {
@@ -120,20 +117,21 @@ export class RentService implements OnModuleInit {
     role: PortalRole | null,
     obligationId: string,
     amount: string,
-    file: Express.Multer.File,
+    file?: Express.Multer.File,
+    data?: string,
+    fileName?: string,
   ) {
     const obligation = await this.obligations.findOne({ where: { id: obligationId } });
     if (!obligation) throw new NotFoundException('Rent obligation was not found');
     await this.access.assertPermission(userId, role, obligation.propertyId, 'RENT_VIEW', obligation.tenancyId);
-    if (!file) throw new BadRequestException('A payment proof file is required');
-    assertAllowedUpload(file.mimetype, file.size, uploadLimitBytes(this.config));
+    const stored = await this.storage.keep({ file, data, fileName });
+    if (!stored) throw new BadRequestException('A payment proof file is required');
     if (compareAmounts(amount, zeroAmount(obligation.currencyCode), obligation.currencyCode) <= 0) {
       throw new BadRequestException('Proof amount must be greater than zero');
     }
-    const storageKey = await this.storage.save(file.buffer, file.originalname);
     const proof = await this.proofs.save(this.proofs.create({
       obligationId,
-      storageKey,
+      storageKey: stored.storageKey,
       amount,
       status: ProofStatus.SUBMITTED,
       submittedByUserId: userId,

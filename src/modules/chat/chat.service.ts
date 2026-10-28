@@ -1,8 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
-import { assertAllowedUpload } from '../../common/utils/files.util';
 import {
   ChatAttachment,
   ChatMessage,
@@ -12,7 +10,7 @@ import {
 } from '../../database/entities';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { StorageService, uploadLimitBytes } from '../storage/storage.service';
+import { StorageService } from '../storage/storage.service';
 import { canAccessThread } from '../access/access.policy';
 
 @Injectable()
@@ -26,7 +24,6 @@ export class ChatService {
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
     private readonly storage: StorageService,
-    private readonly config: ConfigService,
   ) {}
 
   async assertMember(userId: string, threadId: string) {
@@ -55,19 +52,20 @@ export class ChatService {
     return { items, total, page, pageSize };
   }
 
-  async send(userId: string, threadId: string, body?: string, file?: Express.Multer.File) {
+  async send(userId: string, threadId: string, body?: string, file?: Express.Multer.File, data?: string, fileName?: string) {
     const members = await this.assertMember(userId, threadId);
-    if (!body && !file) throw new ForbiddenException('A message or attachment is required');
+    if (!body && !file && !data) throw new ForbiddenException('A message or attachment is required');
     const message = await this.messages.save(this.messages.create({ threadId, senderUserId: userId, body }));
-    if (file) {
-      assertAllowedUpload(file.mimetype, file.size, uploadLimitBytes(this.config));
-      const storageKey = await this.storage.save(file.buffer, file.originalname);
-      await this.attachments.save(this.attachments.create({
-        messageId: message.id,
-        storageKey,
-        mimeType: file.mimetype,
-        originalName: file.originalname,
-      }));
+    if (file || data) {
+      const stored = await this.storage.keep({ file, data, fileName, required: false });
+      if (stored) {
+        await this.attachments.save(this.attachments.create({
+          messageId: message.id,
+          storageKey: stored.storageKey,
+          mimeType: stored.mimeType,
+          originalName: stored.originalName,
+        }));
+      }
     }
     for (const member of members.filter((item) => item.userId !== userId)) {
       await this.notifications.notify({

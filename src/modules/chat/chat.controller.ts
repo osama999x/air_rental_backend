@@ -13,6 +13,14 @@ class SendDto {
   @ApiPropertyOptional({ type: 'string', format: 'binary' })
   @IsOptional()
   file?: string;
+
+  @ApiPropertyOptional({ description: 'Base64 file or a data URL. Used when file is omitted.' })
+  @IsOptional() @IsString()
+  data?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional() @IsString()
+  fileName?: string;
 }
 
 @ApiTags('Chat')
@@ -42,7 +50,7 @@ export class ChatController {
     @Body() dto: SendDto,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    return new ResponseDto('Message sent', await this.chat.send(user.id, threadId, dto.body, file));
+    return new ResponseDto('Message sent', await this.chat.send(user.id, threadId, dto.body, file, dto.data, dto.fileName));
   }
 
   @Post('messages/:id/read')

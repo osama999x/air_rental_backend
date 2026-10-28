@@ -19,6 +19,14 @@ class CreateMaintenanceDto {
   @ApiPropertyOptional({ type: 'string', format: 'binary' })
   @IsOptional()
   file?: string;
+
+  @ApiPropertyOptional({ description: 'Base64 file or a data URL. Used when file is omitted.' })
+  @IsOptional() @IsString()
+  data?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional() @IsString()
+  fileName?: string;
 }
 
 class TransitionDto {
@@ -76,8 +84,10 @@ export class MaintenanceController {
     @ActiveRole() role: PortalRole,
     @Param('id') id: string,
     @UploadedFile() file?: Express.Multer.File,
+    @Body('data') data?: string,
+    @Body('fileName') fileName?: string,
   ) {
-    return new ResponseDto('Attachment stored', await this.maintenance.attach(user.id, role, id, file));
+    return new ResponseDto('Attachment stored', await this.maintenance.attach(user.id, role, id, file, data, fileName));
   }
 
   @Post(':id/status')

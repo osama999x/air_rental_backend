@@ -17,8 +17,16 @@ class FetchBillDto {
 class ProofDto {
   @IsString() amount: string;
 
-  @ApiProperty({ type: 'string', format: 'binary' })
-  file: string;
+  @ApiPropertyOptional({ type: 'string', format: 'binary' })
+  file?: string;
+
+  @ApiPropertyOptional({ description: 'Base64 file or a data URL. Used when file is omitted.' })
+  @IsOptional() @IsString()
+  data?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional() @IsString()
+  fileName?: string;
 }
 
 class DecisionDto {
@@ -43,6 +51,14 @@ class CreateBillDto {
   @ApiPropertyOptional({ type: 'string', format: 'binary' })
   @IsOptional()
   file?: string;
+
+  @ApiPropertyOptional({ description: 'Base64 file or a data URL. Used when file is omitted.' })
+  @IsOptional() @IsString()
+  data?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional() @IsString()
+  fileName?: string;
 }
 
 @ApiTags('Bills')
@@ -121,6 +137,6 @@ export class BillsController {
     @Body() dto: ProofDto,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    return new ResponseDto('Bill proof submitted', await this.bills.submitProof(user.id, role, id, dto.amount, file));
+    return new ResponseDto('Bill proof submitted', await this.bills.submitProof(user.id, role, id, dto.amount, file, dto.data, dto.fileName));
   }
 }

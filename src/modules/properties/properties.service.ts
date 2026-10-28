@@ -2,14 +2,12 @@ import { BadRequestException, Injectable, NotFoundException, StreamableFile } fr
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { MediaKind, PortalRole, PropertyStatus, PropertyType } from '../../common/enums';
-import { assertAllowedUpload, safeFileName } from '../../common/utils/files.util';
+import { safeFileName } from '../../common/utils/files.util';
 import { City, Country, Property, PropertyCodeSequence, PropertyMedia, PropertyOwnershipHistory, Tenancy } from '../../database/entities';
 import { AccessService } from '../access/access.service';
 import { AuditService } from '../audit/audit.service';
 import { StorageService } from '../storage/storage.service';
 import { allocatePropertyCode } from './property-code';
-import { ConfigService } from '@nestjs/config';
-import { uploadLimitBytes } from '../storage/storage.service';
 import { TenancyStatus } from '../../common/enums';
 
 @Injectable()
@@ -24,7 +22,6 @@ export class PropertiesService {
     private readonly access: AccessService,
     private readonly audit: AuditService,
     private readonly storage: StorageService,
-    private readonly config: ConfigService,
   ) {}
 
   async create(userId: string, role: PortalRole | null, input: {
@@ -48,6 +45,12 @@ export class PropertiesService {
   }) {
     if (role !== PortalRole.OWNER) {
       throw new BadRequestException('Properties are created from the owner portal');
+    }
+    if (!input.name?.trim() || input.name.trim().length > 180) {
+      throw new BadRequestException('Property name must be 180 characters or less');
+    }
+    if (input.addressLine && input.addressLine.length > 255) {
+      throw new BadRequestException('Address must be 255 characters or less');
     }
     const country = await this.countries.findOne({ where: { id: input.countryId } });
     if (!country) throw new BadRequestException('Select a valid country. Country is not inferred from coordinates.');
@@ -217,17 +220,24 @@ export class PropertiesService {
     return presented;
   }
 
-  async addMedia(userId: string, role: PortalRole | null, id: string, file: Express.Multer.File, kind: MediaKind) {
+  async addMedia(
+    userId: string,
+    role: PortalRole | null,
+    id: string,
+    file: Express.Multer.File | undefined,
+    kind: MediaKind,
+    data?: string,
+    fileName?: string,
+  ) {
     await this.access.assertPermission(userId, role, id, 'PROPERTY_MANAGE');
-    if (!file) throw new BadRequestException('Choose a file');
-    assertAllowedUpload(file.mimetype, file.size, uploadLimitBytes(this.config));
-    const storageKey = await this.storage.save(file.buffer, file.originalname);
+    const stored = await this.storage.keep({ file, data, fileName });
+    if (!stored) throw new BadRequestException('Choose a file');
     const saved = await this.media.save(this.media.create({
       propertyId: id,
-      storageKey,
-      mimeType: file.mimetype,
+      storageKey: stored.storageKey,
+      mimeType: stored.mimeType,
       kind,
-      originalName: file.originalname,
+      originalName: stored.originalName,
     }));
     return this.mediaView(saved);
   }
@@ -245,9 +255,11 @@ export class PropertiesService {
   }
 
   private mediaView(file: PropertyMedia) {
+    const downloadPath = `properties/media/${file.id}/download`;
     return {
       ...file,
-      downloadPath: `properties/media/${file.id}/download`,
+      downloadPath,
+      url: this.storage.publicUrl(downloadPath),
     };
   }
 

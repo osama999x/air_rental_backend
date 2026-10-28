@@ -1,13 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException, StreamableFile } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MaintenanceStatus, PortalRole } from '../../common/enums';
-import { assertAllowedUpload } from '../../common/utils/files.util';
 import { MaintenanceAttachment, MaintenanceEvent, MaintenanceRequest, Property } from '../../database/entities';
 import { AccessService } from '../access/access.service';
 import { AuditService } from '../audit/audit.service';
-import { uploadLimitBytes, StorageService } from '../storage/storage.service';
+import { StorageService } from '../storage/storage.service';
 
 const FLOW = [
   MaintenanceStatus.NEW,
@@ -27,7 +25,6 @@ export class MaintenanceService {
     private readonly access: AccessService,
     private readonly audit: AuditService,
     private readonly storage: StorageService,
-    private readonly config: ConfigService,
   ) {}
 
   async create(userId: string, role: PortalRole | null, input: {
@@ -38,11 +35,14 @@ export class MaintenanceService {
     priority?: string;
     preferredAccessTime?: string;
     currencyCode?: string;
+    data?: string;
+    fileName?: string;
   }, file?: Express.Multer.File) {
-    await this.access.assertPermission(userId, role, input.propertyId, 'MAINTENANCE_CREATE', input.tenancyId);
-    const property = await this.properties.findOne({ where: { id: input.propertyId } });
+    const { data, fileName, ...fields } = input;
+    await this.access.assertPermission(userId, role, fields.propertyId, 'MAINTENANCE_CREATE', fields.tenancyId);
+    const property = await this.properties.findOne({ where: { id: fields.propertyId } });
     const request = await this.requests.save(this.requests.create({
-      ...input,
+      ...fields,
       requestedByUserId: userId,
       currencyCode: input.currencyCode || property?.currencyCode || 'USD',
       status: MaintenanceStatus.NEW,
@@ -53,7 +53,7 @@ export class MaintenanceService {
       toStatus: MaintenanceStatus.NEW,
       note: 'created',
     }));
-    if (file) await this.attach(userId, role, request.id, file);
+    if (file || data) await this.attach(userId, role, request.id, file, data, fileName);
     return request;
   }
 
@@ -130,24 +130,22 @@ export class MaintenanceService {
     };
   }
 
-  async attach(userId: string, role: PortalRole | null, id: string, file?: Express.Multer.File) {
-    if (!file) throw new BadRequestException('A file is required');
+  async attach(userId: string, role: PortalRole | null, id: string, file?: Express.Multer.File, data?: string, fileName?: string) {
     const request = await this.requests.findOne({ where: { id } });
     if (!request) throw new NotFoundException('Maintenance request was not found');
     await this.access.assertProperty(userId, role, request.propertyId);
-    try {
-      assertAllowedUpload(file.mimetype, file.size, uploadLimitBytes(this.config));
-    } catch (error) {
-      throw new BadRequestException(error instanceof Error ? error.message : 'Unsupported file type');
-    }
-    const storageKey = await this.storage.save(file.buffer, file.originalname);
+    const stored = await this.storage.keep({ file, data, fileName });
+    if (!stored) throw new BadRequestException('A file is required');
     const saved = await this.attachments.save(this.attachments.create({
       requestId: id,
-      storageKey,
-      mimeType: file.mimetype,
-      originalName: file.originalname,
+      storageKey: stored.storageKey,
+      mimeType: stored.mimeType,
+      originalName: stored.originalName,
     }));
-    return this.presentAttachment(saved);
+    return {
+      ...this.presentAttachment(saved),
+      url: this.storage.publicUrl(`maintenance/attachments/${saved.id}/download`),
+    };
   }
 
   async downloadAttachment(userId: string, role: PortalRole | null, id: string) {

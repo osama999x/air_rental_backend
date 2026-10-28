@@ -92,6 +92,13 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       return this.handleDuplicateFieldsDB(error);
     }
 
+    if (errorMessage.includes('value too long')) {
+      return {
+        statusCode: HttpStatus.BAD_REQUEST,
+        message: 'A name or file name is too long. Use a shorter name and try again.',
+      };
+    }
+
     return {
       statusCode: HttpStatus.BAD_REQUEST,
       message: 'Database operation failed',

@@ -85,8 +85,16 @@ class TransferDto {
 }
 
 class PropertyMediaDto {
-  @ApiProperty({ type: 'string', format: 'binary' })
-  file: string;
+  @ApiPropertyOptional({ type: 'string', format: 'binary' })
+  file?: string;
+
+  @ApiPropertyOptional({
+    description: 'Base64 file, or a data URL such as data:image/jpeg;base64,... Used when file is omitted. The server writes the decoded bytes to disk and returns a URL.',
+  })
+  data?: string;
+
+  @ApiPropertyOptional({ example: 'house.jpg' })
+  fileName?: string;
 
   @ApiPropertyOptional({ enum: MediaKind, default: MediaKind.PHOTO })
   kind?: MediaKind;
@@ -144,7 +152,9 @@ export class PropertiesController {
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
     @Body('kind') kind: MediaKind = MediaKind.PHOTO,
+    @Body('data') data?: string,
+    @Body('fileName') fileName?: string,
   ) {
-    return new ResponseDto('Media stored', await this.properties.addMedia(user.id, role, id, file, kind || MediaKind.PHOTO));
+    return new ResponseDto('Media stored', await this.properties.addMedia(user.id, role, id, file, kind || MediaKind.PHOTO, data, fileName));
   }
 }

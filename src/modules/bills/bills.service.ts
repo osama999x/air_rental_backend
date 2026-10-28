@@ -1,5 +1,4 @@
 import { BadRequestException, Injectable, NotFoundException, OnModuleInit, StreamableFile } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import {
@@ -12,7 +11,6 @@ import {
   TenancyStatus,
 } from '../../common/enums';
 import { toIsoDate } from '../../common/utils/dates.util';
-import { assertAllowedUpload } from '../../common/utils/files.util';
 import { clampRemaining, compareAmounts, sumAmounts, zeroAmount } from '../../common/utils/money.util';
 import {
   Bill,
@@ -28,7 +26,7 @@ import { AccessService } from '../access/access.service';
 import { AuditService } from '../audit/audit.service';
 import { JobsService } from '../jobs/jobs.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { uploadLimitBytes, StorageService } from '../storage/storage.service';
+import { StorageService } from '../storage/storage.service';
 import { billNotifyTargets } from './bill.rules';
 
 @Injectable()
@@ -48,7 +46,6 @@ export class BillsService implements OnModuleInit {
     private readonly notifications: NotificationsService,
     private readonly jobs: JobsService,
     private readonly storage: StorageService,
-    private readonly config: ConfigService,
   ) {}
 
   onModuleInit() {
@@ -74,6 +71,8 @@ export class BillsService implements OnModuleInit {
     externalReference?: string;
     responsibilityMode: ResponsibilityMode;
     shares?: Array<{ party: string; userId?: string; shareAmount?: string; sharePercent?: string; ruleNote?: string }>;
+    data?: string;
+    fileName?: string;
   }, file?: Express.Multer.File) {
     await this.access.assertPermission(userId, role, input.propertyId, 'BILL_MANAGE', input.tenancyId);
     if (input.providerId && input.externalReference) {
@@ -82,23 +81,21 @@ export class BillsService implements OnModuleInit {
       });
       if (duplicate) return duplicate;
     }
-    let documentStorageKey: string | undefined;
-    if (file) {
-      assertAllowedUpload(file.mimetype, file.size, uploadLimitBytes(this.config));
-      documentStorageKey = await this.storage.save(file.buffer, file.originalname);
-    }
+    const { data, fileName, shares, ...billInput } = input;
+    const stored = await this.storage.keep({ file, data, fileName, required: false });
+    const documentStorageKey = stored?.storageKey;
     const property = await this.properties.findOne({ where: { id: input.propertyId } });
     if (!property) throw new NotFoundException('Property was not found');
     const bill = await this.dataSource.transaction(async (manager) => {
       const saved = await manager.save(manager.create(Bill, {
-        ...input,
+        ...billInput,
         category: input.category as any,
         documentStorageKey,
         status: BillStatus.ISSUED,
         createdByUserId: userId,
       }));
-      const parties = input.shares?.length
-        ? input.shares
+      const parties = shares?.length
+        ? shares
         : [{ party: input.responsibilityMode, userId }];
       for (const share of parties) {
         await manager.save(manager.create(BillResponsibility, { billId: saved.id, ...share }));
@@ -190,17 +187,15 @@ export class BillsService implements OnModuleInit {
     billId: string,
     amount: string,
     file?: Express.Multer.File,
+    data?: string,
+    fileName?: string,
   ) {
     const bill = await this.visibleBill(userId, role, billId);
-    if (!file) throw new BadRequestException('A payment proof file is required');
     if (bill.status === BillStatus.PAID || bill.status === BillStatus.CANCELLED) {
       throw new BadRequestException('This bill is not open for a payment proof');
     }
-    try {
-      assertAllowedUpload(file.mimetype, file.size, uploadLimitBytes(this.config));
-    } catch (error) {
-      throw new BadRequestException(error instanceof Error ? error.message : 'Unsupported file type');
-    }
+    const stored = await this.storage.keep({ file, data, fileName });
+    if (!stored) throw new BadRequestException('A payment proof file is required');
     if (compareAmounts(amount, zeroAmount(bill.currencyCode), bill.currencyCode) <= 0) {
       throw new BadRequestException('Proof amount must be greater than zero');
     }
@@ -208,11 +203,10 @@ export class BillsService implements OnModuleInit {
     if (compareAmounts(amount, remaining, bill.currencyCode) > 0) {
       throw new BadRequestException('Proof amount exceeds the remaining balance');
     }
-    const storageKey = await this.storage.save(file.buffer, file.originalname);
     const proof = await this.proofs.save(this.proofs.create({
       billId,
-      storageKey,
-      mimeType: file.mimetype,
+      storageKey: stored.storageKey,
+      mimeType: stored.mimeType,
       amount,
       status: ProofStatus.SUBMITTED,
       submittedByUserId: userId,
