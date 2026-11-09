@@ -94,6 +94,9 @@ export class TenantProfile extends BaseEntity {
 
   @Column({ type: 'varchar', length: 32, nullable: true })
   emergencyContactPhone?: string | null;
+
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  emergencyContactRelationship?: string | null;
 }
 
 @Entity('manager_profiles')

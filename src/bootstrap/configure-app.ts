@@ -23,7 +23,7 @@ export function configureApp(
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
-  const devOrigins = ['http://localhost:3000', 'http://localhost:4200', 'http://localhost:5000', 'http://localhost:8080'];
+  const devOrigins = ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:4200', 'http://localhost:5000', 'http://localhost:8080'];
   app.enableCors({
     origin: configuredOrigins.length
       ? configuredOrigins

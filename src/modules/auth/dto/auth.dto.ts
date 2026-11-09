@@ -92,6 +92,15 @@ export class VerifyPhoneDto {
   code: string;
 }
 
+export class VerifyResetCodeDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  @Length(6, 6)
+  code: string;
+}
+
 export class ResetPasswordDto {
   @IsEmail()
   email: string;
@@ -116,6 +125,14 @@ export class IdentityTokenDto {
   @IsOptional()
   @IsString()
   lastName?: string;
+
+  @IsOptional()
+  @IsString()
+  deviceName?: string;
+
+  @IsOptional()
+  @IsString()
+  platform?: string;
 }
 
 export class ActiveRoleDto {

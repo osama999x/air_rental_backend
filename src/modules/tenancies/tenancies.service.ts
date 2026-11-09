@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ForbiddenException,
+  GoneException,
   Injectable,
   NotFoundException,
   OnModuleInit,
@@ -8,6 +9,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import {
+  AgreementStatus,
+  InvitationChannel,
   InvitationStatus,
   ParticipantSide,
   PortalRole,
@@ -22,15 +25,21 @@ import {
   ChatThread,
   InsurancePolicy,
   Invitation,
+  OwnerProfile,
   Property,
   Tenancy,
+  TenancyAgreement,
   TenancyParticipant,
+  TenantProfile,
   User,
 } from '../../database/entities';
 import { AccessService } from '../access/access.service';
 import { AuditService } from '../audit/audit.service';
+import { AuthService } from '../auth/auth.service';
 import { JobsService } from '../jobs/jobs.service';
+import { MailService } from '../notifications/mail.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { IdentityDocumentsService } from '../users/identity-documents.service';
 import { ConfigService } from '@nestjs/config';
 import { VerificationStatus } from '../../common/enums';
 
@@ -42,12 +51,18 @@ export class TenanciesService implements OnModuleInit {
     @InjectRepository(Property) private readonly properties: Repository<Property>,
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(InsurancePolicy) private readonly policies: Repository<InsurancePolicy>,
+    @InjectRepository(TenancyAgreement) private readonly agreements: Repository<TenancyAgreement>,
+    @InjectRepository(OwnerProfile) private readonly owners: Repository<OwnerProfile>,
+    @InjectRepository(TenantProfile) private readonly tenants: Repository<TenantProfile>,
     private readonly dataSource: DataSource,
     private readonly access: AccessService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
     private readonly jobs: JobsService,
     private readonly config: ConfigService,
+    private readonly mail: MailService,
+    private readonly auth: AuthService,
+    private readonly identity: IdentityDocumentsService,
   ) {}
 
   onModuleInit() {
@@ -102,31 +117,45 @@ export class TenanciesService implements OnModuleInit {
     return tenancy;
   }
 
-  async invite(userId: string, role: PortalRole | null, tenancyId: string, input: { email?: string; phone?: string; expiresInDays?: number }) {
+  async invite(userId: string, role: PortalRole | null, tenancyId: string, input: {
+    email?: string;
+    phone?: string;
+    tenantName?: string;
+    channel?: InvitationChannel;
+    expiresInDays?: number;
+  }) {
     const tenancy = await this.requireManage(userId, role, tenancyId);
-    if (!input.email && !input.phone) throw new BadRequestException('An email or phone is required');
+    const channel = input.channel
+      ?? (input.email || input.phone ? InvitationChannel.CONTACT : InvitationChannel.LINK);
+    if (channel === InvitationChannel.CONTACT && !input.email && !input.phone) {
+      throw new BadRequestException('A contact invite needs an email or a phone number');
+    }
+    const property = await this.properties.findOne({ where: { id: tenancy.propertyId } });
     const raw = randomToken(32);
     const invitation = await this.invitations.save(this.invitations.create({
       tenancyId,
       email: input.email ? normalizeEmail(input.email) : null,
-      phone: input.phone,
+      phone: input.phone?.trim() || null,
+      tenantName: input.tenantName?.trim() || null,
+      channel,
       tokenHash: sha256(raw),
       status: InvitationStatus.PENDING,
       expiresAt: addDays(new Date(), input.expiresInDays || 7),
       createdByUserId: userId,
     }));
     await this.tenancies.update({ id: tenancyId }, { status: TenancyStatus.INVITED });
-    const url = `${this.config.get('APP_PUBLIC_URL') || 'http://localhost:3000'}/invitations/${raw}`;
-    if (input.email) {
-      const existing = await this.users.findOne({ where: { email: normalizeEmail(input.email) } });
+    const url = this.shareUrl(raw);
+    const delivery = await this.deliverInvite(channel, invitation.email, invitation.phone, url, property?.name || 'a property');
+    if (invitation.email) {
+      const existing = await this.users.findOne({ where: { email: invitation.email } });
       if (existing) {
         await this.notifications.notify({
           userId: existing.id,
           type: 'tenancy.invitation',
           title: 'Tenancy invitation',
-          body: 'You have a property invitation to review.',
+          body: `You have an invitation for ${property?.name || 'a property'}.`,
           dedupeParts: ['invitation', invitation.id],
-          data: { tenancyId },
+          data: { tenancyId, url },
         });
       }
     }
@@ -139,70 +168,87 @@ export class TenanciesService implements OnModuleInit {
       entityId: invitation.id,
       propertyId: tenancy.propertyId,
       tenancyId,
+      metadata: { channel },
     });
-    return { invitationId: invitation.id, expiresAt: invitation.expiresAt, url };
+    return { invitationId: invitation.id, expiresAt: invitation.expiresAt, url, channel, delivery };
   }
 
-  async preview(token: string) {
+  async listInvitations(userId: string, role: PortalRole | null, propertyId?: string) {
+    const actor = await this.access.actor(userId, role);
+    const user = await this.users.findOne({ where: { id: userId } });
+    const rows = await this.invitations.find({ order: { createdAt: 'DESC' }, take: 200 });
+    const visible = [];
+    for (const invitation of rows) {
+      if (this.effectiveStatus(invitation) !== InvitationStatus.PENDING) continue;
+      const tenancy = await this.tenancies.findOne({ where: { id: invitation.tenancyId } });
+      if (!tenancy) continue;
+      if (propertyId && tenancy.propertyId !== propertyId) continue;
+      const incoming = Boolean(user && this.addressedTo(invitation, user));
+      const outgoing = this.canManageProperty(actor, role, tenancy.propertyId);
+      if (!incoming && !outgoing) continue;
+      const property = await this.properties.findOne({ where: { id: tenancy.propertyId } });
+      visible.push({
+        ...this.presentInvitation(invitation, tenancy, property),
+        direction: role === PortalRole.TENANT || (incoming && !outgoing) ? 'incoming' : 'outgoing',
+      });
+    }
+    return visible;
+  }
+
+  preview(token: string) {
+    return this.lookup(token);
+  }
+
+  async lookup(token: string) {
+    if (!token) throw new BadRequestException('token is required');
     const invitation = await this.byToken(token);
     const tenancy = await this.tenancies.findOne({ where: { id: invitation.tenancyId } });
     const property = tenancy ? await this.properties.findOne({ where: { id: tenancy.propertyId } }) : null;
     return {
-      status: this.effectiveStatus(invitation),
-      propertyCode: property?.visibleCode,
-      propertyName: property?.name,
-      startDate: tenancy?.startDate,
-      endDate: tenancy?.endDate,
+      ...this.presentInvitation(invitation, tenancy, property),
+      accountExists: await this.accountExists(invitation),
     };
   }
 
   async respond(user: User, token: string, accept: boolean) {
-    const invitation = await this.byToken(token);
-    if (this.effectiveStatus(invitation) !== InvitationStatus.PENDING) {
-      throw new BadRequestException('This invitation is no longer open');
+    return this.applyResponse(user, await this.byToken(token), accept);
+  }
+
+  async respondById(user: User, id: string, accept: boolean, token?: string) {
+    const invitation = await this.invitations.findOne({ where: { id } });
+    if (!invitation) throw new NotFoundException('Invitation was not found');
+    if (token && invitation.tokenHash !== sha256(token)) {
+      throw new ForbiddenException('This invitation link does not match');
     }
-    if (invitation.email && normalizeEmail(invitation.email) !== user.email) {
+    if (!token && !this.addressedTo(invitation, user)) {
       throw new ForbiddenException('This invitation was issued to a different email');
     }
-    if (!accept) {
-      await this.invitations.update({ id: invitation.id }, { status: InvitationStatus.DECLINED });
-      await this.tenancies.update({ id: invitation.tenancyId }, { status: TenancyStatus.DECLINED });
-      return { status: InvitationStatus.DECLINED };
+    return this.applyResponse(user, invitation, accept);
+  }
+
+  async revoke(userId: string, role: PortalRole | null, id: string) {
+    const invitation = await this.invitations.findOne({ where: { id } });
+    if (!invitation) throw new NotFoundException('Invitation was not found');
+    const tenancy = await this.requireManage(userId, role, invitation.tenancyId);
+    const status = this.effectiveStatus(invitation);
+    if (status !== InvitationStatus.PENDING) throw new GoneException(this.closedMessage(status));
+    await this.invitations.update({ id }, { status: InvitationStatus.REVOKED, revokedAt: new Date() });
+    const stillPending = await this.invitations.find({ where: { tenancyId: tenancy.id, status: InvitationStatus.PENDING } });
+    const open = stillPending.filter((row) => row.id !== id && this.effectiveStatus(row) === InvitationStatus.PENDING);
+    if (!open.length && tenancy.status === TenancyStatus.INVITED) {
+      await this.tenancies.update({ id: tenancy.id }, { status: TenancyStatus.PROPOSED });
     }
-    await this.dataSource.transaction(async (manager) => {
-      await manager.update(Invitation, { id: invitation.id }, {
-        status: InvitationStatus.ACCEPTED,
-        acceptedByUserId: user.id,
-      });
-      await manager.update(Tenancy, { id: invitation.tenancyId }, {
-        tenantUserId: user.id,
-        status: TenancyStatus.ACCEPTED,
-      });
-      const thread = await manager.save(manager.create(ChatThread, { tenancyId: invitation.tenancyId }));
-      const tenancy = await manager.findOne(Tenancy, { where: { id: invitation.tenancyId } });
-      await manager.update(Tenancy, { id: invitation.tenancyId }, { chatThreadId: thread.id });
-      const participants = [
-        { threadId: thread.id, userId: tenancy.ownerUserId, side: ParticipantSide.OWNER },
-        { threadId: thread.id, userId: user.id, side: ParticipantSide.TENANT },
-      ];
-      for (const participant of participants) {
-        await manager.save(manager.create(ChatParticipant, participant));
-        await manager.save(manager.create(TenancyParticipant, {
-          tenancyId: invitation.tenancyId,
-          userId: participant.userId,
-          side: participant.side,
-        }));
-      }
-    });
     await this.audit.record({
-      actorUserId: user.id,
+      actorUserId: userId,
       actorType: 'USER',
-      action: 'tenancy.invitation_accepted',
+      activeRole: role,
+      action: 'tenancy.invitation_revoked',
       entityType: 'invitation',
-      entityId: invitation.id,
-      tenancyId: invitation.tenancyId,
+      entityId: id,
+      propertyId: tenancy.propertyId,
+      tenancyId: tenancy.id,
     });
-    return { status: InvitationStatus.ACCEPTED, tenancyId: invitation.tenancyId };
+    return { id, status: InvitationStatus.REVOKED };
   }
 
   async activate(userId: string, role: PortalRole | null, tenancyId: string) {
@@ -265,24 +311,29 @@ export class TenanciesService implements OnModuleInit {
     return this.tenancies.findOne({ where: { id: tenancyId } });
   }
 
-  async list(userId: string, role: PortalRole | null) {
+  async list(userId: string, role: PortalRole | null, propertyId?: string) {
     const actor = await this.access.actor(userId, role);
+    let rows: Tenancy[] = [];
     if (role === PortalRole.TENANT) {
-      if (!actor.tenantTenancyIds.length) return [];
-      return this.tenancies.find({ where: { id: In(actor.tenantTenancyIds) } });
+      if (actor.tenantTenancyIds.length) {
+        rows = await this.tenancies.find({ where: { id: In(actor.tenantTenancyIds) } });
+      }
+    } else if (role === PortalRole.OWNER) {
+      if (actor.ownedPropertyIds.length) {
+        rows = await this.tenancies.createQueryBuilder('tenancy')
+          .where('tenancy.propertyId IN (:...ids)', { ids: actor.ownedPropertyIds })
+          .orderBy('tenancy.createdAt', 'DESC')
+          .getMany();
+      }
+    } else {
+      const propertyIds = actor.assignments.filter((item) => item.status === 'ACTIVE').flatMap((item) => item.propertyIds);
+      if (propertyIds.length) {
+        rows = await this.tenancies.createQueryBuilder('tenancy')
+          .where('tenancy.propertyId IN (:...ids)', { ids: propertyIds })
+          .getMany();
+      }
     }
-    if (role === PortalRole.OWNER) {
-      if (!actor.ownedPropertyIds.length) return [];
-      return this.tenancies.createQueryBuilder('tenancy')
-        .where('tenancy.propertyId IN (:...ids)', { ids: actor.ownedPropertyIds })
-        .orderBy('tenancy.createdAt', 'DESC')
-        .getMany();
-    }
-    const propertyIds = actor.assignments.filter((item) => item.status === 'ACTIVE').flatMap((item) => item.propertyIds);
-    if (!propertyIds.length) return [];
-    return this.tenancies.createQueryBuilder('tenancy')
-      .where('tenancy.propertyId IN (:...ids)', { ids: propertyIds })
-      .getMany();
+    return propertyId ? rows.filter((row) => row.propertyId === propertyId) : rows;
   }
 
   async get(userId: string, role: PortalRole | null, id: string) {
@@ -292,7 +343,184 @@ export class TenanciesService implements OnModuleInit {
     if (role === PortalRole.TENANT && tenancy.tenantUserId !== userId) {
       throw new ForbiddenException('You cannot access this tenancy');
     }
-    return tenancy;
+    const agreement = await this.agreements.findOne({
+      where: { tenancyId: id, status: AgreementStatus.ACTIVE },
+      order: { version: 'DESC' },
+    });
+    const money = {
+      rent: agreement?.monthlyRent ?? null,
+      deposit: agreement?.securityDeposit ?? null,
+      currencyCode: agreement?.currencyCode ?? tenancy.currencyCode,
+      agreementStart: agreement?.startDate ?? null,
+      agreementEnd: agreement?.expiryDate ?? null,
+    };
+    if (role === PortalRole.TENANT) {
+      const ownerUser = await this.users.findOne({ where: { id: tenancy.ownerUserId } });
+      const ownerProfile = await this.owners.findOne({ where: { userId: tenancy.ownerUserId } });
+      return {
+        ...tenancy,
+        ...money,
+        owner: {
+          userId: tenancy.ownerUserId,
+          name: ownerProfile?.displayName || [ownerUser?.firstName, ownerUser?.lastName].filter(Boolean).join(' '),
+        },
+      };
+    }
+    const tenantUser = tenancy.tenantUserId
+      ? await this.users.findOne({ where: { id: tenancy.tenantUserId } })
+      : null;
+    const tenantProfile = tenancy.tenantUserId
+      ? await this.tenants.findOne({ where: { userId: tenancy.tenantUserId } })
+      : null;
+    return {
+      ...tenancy,
+      ...money,
+      tenant: tenantUser
+        ? {
+            userId: tenantUser.id,
+            name: tenantProfile?.displayName || `${tenantUser.firstName} ${tenantUser.lastName}`.trim(),
+            email: tenantUser.email,
+            phone: tenantUser.phone ?? null,
+            emergencyContactName: tenantProfile?.emergencyContactName ?? null,
+            emergencyContactPhone: tenantProfile?.emergencyContactPhone ?? null,
+            emergencyContactRelationship: tenantProfile?.emergencyContactRelationship ?? null,
+          }
+        : null,
+      identityDocuments: tenancy.tenantUserId ? await this.identity.summaryForUser(tenancy.tenantUserId) : [],
+    };
+  }
+
+  private async applyResponse(user: User, invitation: Invitation, accept: boolean) {
+    const status = this.effectiveStatus(invitation);
+    if (status !== InvitationStatus.PENDING) throw new GoneException(this.closedMessage(status));
+    if (invitation.email && normalizeEmail(invitation.email) !== user.email) {
+      throw new ForbiddenException('This invitation was issued to a different email');
+    }
+    if (!accept) {
+      await this.invitations.update({ id: invitation.id }, { status: InvitationStatus.DECLINED });
+      await this.tenancies.update({ id: invitation.tenancyId }, { status: TenancyStatus.DECLINED });
+      return { status: InvitationStatus.DECLINED, tenancyId: invitation.tenancyId };
+    }
+    await this.dataSource.transaction(async (manager) => {
+      await manager.update(Invitation, { id: invitation.id }, {
+        status: InvitationStatus.ACCEPTED,
+        acceptedByUserId: user.id,
+      });
+      await manager.update(Tenancy, { id: invitation.tenancyId }, {
+        tenantUserId: user.id,
+        status: TenancyStatus.ACCEPTED,
+      });
+      const thread = await manager.save(manager.create(ChatThread, { tenancyId: invitation.tenancyId }));
+      const tenancy = await manager.findOne(Tenancy, { where: { id: invitation.tenancyId } });
+      await manager.update(Tenancy, { id: invitation.tenancyId }, { chatThreadId: thread.id });
+      const participants = [
+        { threadId: thread.id, userId: tenancy.ownerUserId, side: ParticipantSide.OWNER },
+        { threadId: thread.id, userId: user.id, side: ParticipantSide.TENANT },
+      ];
+      for (const participant of participants) {
+        await manager.save(manager.create(ChatParticipant, participant));
+        await manager.save(manager.create(TenancyParticipant, {
+          tenancyId: invitation.tenancyId,
+          userId: participant.userId,
+          side: participant.side,
+        }));
+      }
+    });
+    await this.auth.grantRole(user, PortalRole.TENANT);
+    await this.audit.record({
+      actorUserId: user.id,
+      actorType: 'USER',
+      action: 'tenancy.invitation_accepted',
+      entityType: 'invitation',
+      entityId: invitation.id,
+      tenancyId: invitation.tenancyId,
+    });
+    return { status: InvitationStatus.ACCEPTED, tenancyId: invitation.tenancyId };
+  }
+
+  private shareUrl(token: string) {
+    const origin = String(this.config.get('WEB_APP_URL') || 'http://localhost:3001').replace(/\/$/, '');
+    return `${origin}/portal/invite/${token}`;
+  }
+
+  private async deliverInvite(
+    channel: InvitationChannel,
+    email: string | null | undefined,
+    phone: string | null | undefined,
+    url: string,
+    propertyName: string,
+  ) {
+    if (channel !== InvitationChannel.CONTACT) return { sent: false, reason: 'OWNER_SHARES_LINK' };
+    if (email) {
+      const result = await this.mail.send(
+        email,
+        'Air Rental tenancy invitation',
+        `You are invited to ${propertyName}. Open ${url}`,
+      );
+      if (!result.delivered) return { sent: false, reason: result.reason || 'EMAIL_NOT_CONFIGURED' };
+      return { sent: true, reason: null };
+    }
+    if (phone) return { sent: false, reason: 'SMS_NOT_CONFIGURED' };
+    return { sent: false, reason: 'OWNER_SHARES_LINK' };
+  }
+
+  private presentInvitation(
+    invitation: Invitation,
+    tenancy: Tenancy | null,
+    property: Property | null,
+  ) {
+    return {
+      invitationId: invitation.id,
+      id: invitation.id,
+      tenancyId: invitation.tenancyId,
+      propertyId: tenancy?.propertyId ?? null,
+      propertyCode: property?.visibleCode ?? null,
+      propertyName: property?.name ?? null,
+      tenantName: invitation.tenantName ?? null,
+      channel: invitation.channel,
+      status: this.effectiveStatus(invitation),
+      expiresAt: invitation.expiresAt,
+      startDate: tenancy?.startDate ?? null,
+      endDate: tenancy?.endDate ?? null,
+      createdAt: invitation.createdAt,
+    };
+  }
+
+  private async accountExists(invitation: Invitation) {
+    if (invitation.email) return Boolean(await this.users.findOne({ where: { email: invitation.email } }));
+    if (invitation.phone) return Boolean(await this.users.findOne({ where: { phone: invitation.phone } }));
+    return false;
+  }
+
+  private addressedTo(invitation: Invitation, user: User) {
+    if (invitation.email && normalizeEmail(invitation.email) === user.email) return true;
+    if (invitation.phone && user.phone && this.samePhone(invitation.phone, user.phone)) return true;
+    return false;
+  }
+
+  private samePhone(left: string, right: string) {
+    const digits = (value: string) => value.replace(/\D/g, '');
+    const a = digits(left);
+    const b = digits(right);
+    return Boolean(a) && (a === b || a.endsWith(b) || b.endsWith(a));
+  }
+
+  private canManageProperty(
+    actor: { ownedPropertyIds: string[]; assignments: Array<{ status: string; propertyIds: string[] }> },
+    role: PortalRole | null,
+    propertyId: string,
+  ) {
+    if (role === PortalRole.TENANT) return false;
+    if (actor.ownedPropertyIds.includes(propertyId)) return true;
+    return actor.assignments.some((item) => item.status === 'ACTIVE' && item.propertyIds.includes(propertyId));
+  }
+
+  private closedMessage(status: InvitationStatus) {
+    if (status === InvitationStatus.EXPIRED) return 'This invitation has expired';
+    if (status === InvitationStatus.ACCEPTED) return 'This invitation has already been used';
+    if (status === InvitationStatus.DECLINED) return 'This invitation was declined';
+    if (status === InvitationStatus.REVOKED) return 'This invitation was revoked';
+    return 'This invitation is no longer open';
   }
 
   private async requireManage(userId: string, role: PortalRole | null, tenancyId: string) {

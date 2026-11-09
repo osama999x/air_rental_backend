@@ -18,6 +18,7 @@ import {
   RegisterDto,
   ResetPasswordDto,
   VerifyEmailDto,
+  VerifyResetCodeDto,
 } from './dto/auth.dto';
 
 @ApiTags('Auth')
@@ -65,6 +66,12 @@ export class AuthController {
   }
 
   @Public()
+  @Post('verify-reset-code')
+  async verifyReset(@Body() dto: VerifyResetCodeDto) {
+    return new ResponseDto('Reset code is valid', await this.auth.verifyResetCode(dto.email, dto.code));
+  }
+
+  @Public()
   @Post('reset-password')
   async reset(@Body() dto: ResetPasswordDto) {
     return new ResponseDto('Password updated', await this.auth.resetPassword(dto.email, dto.code, dto.password));
@@ -73,7 +80,10 @@ export class AuthController {
   @Public()
   @Post('google')
   async google(@Body() dto: IdentityTokenDto, @Req() req: Request) {
-    return new ResponseDto('Google sign-in completed', await this.auth.google(dto.idToken, this.meta(req), dto));
+    return new ResponseDto(
+      'Google sign-in completed',
+      await this.auth.google(dto.idToken, { ...this.meta(req), deviceName: dto.deviceName, platform: dto.platform }, dto),
+    );
   }
 
   @Public()

@@ -3,6 +3,7 @@ import {
   AgreementStatus,
   AssignmentSide,
   AssignmentStatus,
+  InvitationChannel,
   InvitationStatus,
   ParticipantSide,
   RenewalStatus,
@@ -55,6 +56,12 @@ export class Invitation extends CreatedEntity {
 
   @Column({ type: 'varchar', length: 32, nullable: true })
   phone?: string | null;
+
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  tenantName?: string | null;
+
+  @Column({ type: 'varchar', length: 16, default: InvitationChannel.LINK })
+  channel: InvitationChannel;
 
   @Index({ unique: true })
   @Column({ type: 'varchar', length: 128 })

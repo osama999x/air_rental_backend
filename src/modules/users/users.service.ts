@@ -18,6 +18,7 @@ type ProfileEdit = {
   currentAddress?: string;
   emergencyContactName?: string;
   emergencyContactPhone?: string;
+  emergencyContactRelationship?: string;
   data?: string;
   fileName?: string;
 };
@@ -154,6 +155,7 @@ export class UsersService {
         currentAddress: patch.currentAddress,
         emergencyContactName: patch.emergencyContactName,
         emergencyContactPhone: patch.emergencyContactPhone,
+        emergencyContactRelationship: patch.emergencyContactRelationship,
       });
       if (!Object.keys(next).length) return;
       await this.updateTenant(user, next);

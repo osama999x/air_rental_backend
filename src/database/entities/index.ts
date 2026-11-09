@@ -9,7 +9,7 @@ export * from './operations.entities';
 export * from './communication.entities';
 export * from './platform.entities';
 
-import { User, AuthIdentity, RefreshToken, OtpChallenge, UserRole, DeviceSession, LoginAttempt } from './identity.entities';
+import { User, AuthIdentity, RefreshToken, OtpChallenge, UserRole, DeviceSession, LoginAttempt, IdentityDocument } from './identity.entities';
 import { Organization, OrganizationMember, OwnerProfile, TenantProfile, ManagerProfile } from './organization.entities';
 import { Country, City, Language, Currency, MeasurementUnit } from './geo.entities';
 import { Property, PropertyCodeSequence, PropertyOwnershipHistory, PropertyMedia } from './property.entities';
@@ -83,6 +83,7 @@ export const ALL_ENTITIES = [
   UserRole,
   DeviceSession,
   LoginAttempt,
+  IdentityDocument,
   Organization,
   OrganizationMember,
   OwnerProfile,

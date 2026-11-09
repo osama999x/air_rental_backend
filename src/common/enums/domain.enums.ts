@@ -91,6 +91,23 @@ export enum InvitationStatus {
   REVOKED = 'REVOKED',
 }
 
+export enum InvitationChannel {
+  CONTACT = 'CONTACT',
+  LINK = 'LINK',
+  QR = 'QR',
+}
+
+export enum IdentityDocumentType {
+  CNIC = 'CNIC',
+  NATIONAL_ID = 'NATIONAL_ID',
+  DRIVING_LICENSE = 'DRIVING_LICENSE',
+}
+
+export enum IdentityDocumentSide {
+  FRONT = 'FRONT',
+  BACK = 'BACK',
+}
+
 export enum ParticipantSide {
   OWNER = 'OWNER',
   TENANT = 'TENANT',

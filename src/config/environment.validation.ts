@@ -5,6 +5,8 @@ export default Joi.object({
   PORT: Joi.number().default(3000),
   API_VERSION: Joi.string().default('1.0.0'),
   APP_PUBLIC_URL: Joi.string().default('http://localhost:3000'),
+  WEB_APP_URL: Joi.string().default('http://localhost:3001'),
+  IDENTITY_ENCRYPTION_KEY: Joi.string().default('development-only-identity-key'),
   CORS_ORIGINS: Joi.string().allow('').default(''),
   BODY_LIMIT: Joi.string().default('10mb'),
   UPLOAD_MAX_MB: Joi.number().default(10),

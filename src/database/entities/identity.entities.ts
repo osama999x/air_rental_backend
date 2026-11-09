@@ -1,11 +1,14 @@
 import { Column, Entity, Index, Unique } from 'typeorm';
 import {
   AuthProvider,
+  IdentityDocumentSide,
+  IdentityDocumentType,
   OtpChannel,
   OtpPurpose,
   PortalRole,
   TokenAudience,
   UserStatus,
+  VerificationStatus,
 } from '../../common/enums';
 import { BaseEntity, CreatedEntity } from './base.entity';
 
@@ -189,6 +192,47 @@ export class DeviceSession extends BaseEntity {
 
   @Column({ type: 'timestamptz', nullable: true })
   revokedAt?: Date | null;
+}
+
+@Entity('identity_documents')
+@Unique('uq_identity_document_side', ['userId', 'documentType', 'side'])
+export class IdentityDocument extends BaseEntity {
+  @Index()
+  @Column({ type: 'uuid' })
+  userId: string;
+
+  @Column({ type: 'varchar', length: 32 })
+  documentType: IdentityDocumentType;
+
+  @Column({ type: 'varchar', length: 8 })
+  side: IdentityDocumentSide;
+
+  @Column({ type: 'text' })
+  numberCipher: string;
+
+  @Column({ type: 'varchar', length: 32 })
+  numberIv: string;
+
+  @Column({ type: 'varchar', length: 32 })
+  numberTag: string;
+
+  @Column({ type: 'varchar', length: 32 })
+  fileIv: string;
+
+  @Column({ type: 'varchar', length: 32 })
+  fileTag: string;
+
+  @Column({ type: 'varchar', length: 255 })
+  storageKey: string;
+
+  @Column({ type: 'varchar', length: 120 })
+  mimeType: string;
+
+  @Column({ type: 'varchar', length: 180 })
+  originalName: string;
+
+  @Column({ type: 'varchar', length: 16, default: VerificationStatus.UNVERIFIED })
+  verificationStatus: VerificationStatus;
 }
 
 @Entity('login_attempts')

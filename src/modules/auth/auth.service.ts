@@ -224,6 +224,13 @@ export class AuthService {
     return { accepted: true };
   }
 
+  async verifyResetCode(email: string, code: string) {
+    const user = await this.findByEmail(email);
+    if (!user) throw new UnauthorizedException('Verification code is invalid or expired');
+    await this.checkOtp(user.id, user.email, OtpPurpose.RESET_PASSWORD, code);
+    return { valid: true };
+  }
+
   async resetPassword(email: string, code: string, password: string) {
     const user = await this.findByEmail(email);
     if (!user) throw new UnauthorizedException('Reset code is invalid');
@@ -626,7 +633,15 @@ export class AuthService {
     return code;
   }
 
+  private async checkOtp(userId: string, destination: string, purpose: OtpPurpose, code: string) {
+    return this.matchOtp(userId, destination, purpose, code, false);
+  }
+
   private async consumeOtp(userId: string, destination: string, purpose: OtpPurpose, code: string) {
+    await this.matchOtp(userId, destination, purpose, code, true);
+  }
+
+  private async matchOtp(userId: string, destination: string, purpose: OtpPurpose, code: string, consume: boolean) {
     const challenge = await this.otps
       .createQueryBuilder('otp')
       .addSelect('otp.codeHash')
@@ -642,13 +657,16 @@ export class AuthService {
       throw new UnauthorizedException('Verification code is invalid or expired');
     }
     if (challenge.attempts >= 5) throw new HttpException('Too many attempts', HttpStatus.TOO_MANY_REQUESTS);
-    challenge.attempts += 1;
     if (challenge.codeHash !== sha256(code)) {
+      challenge.attempts += 1;
       await this.otps.save(challenge);
       throw new UnauthorizedException('Verification code is invalid or expired');
     }
-    challenge.consumedAt = new Date();
-    await this.otps.save(challenge);
+    if (consume) {
+      challenge.consumedAt = new Date();
+      await this.otps.save(challenge);
+    }
+    return challenge;
   }
 
   private async assertNotLocked(email: string) {

@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsDateString, IsEmail, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsDateString, IsEmail, IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
 import { ActiveRole, CurrentUser, Public } from '../../common/decorators';
 import { ResponseDto } from '../../common/dto/response';
-import { PortalRole, TenancyStatus } from '../../common/enums';
+import { InvitationChannel, PortalRole, TenancyStatus } from '../../common/enums';
 import { User } from '../../database/entities';
 import { TenanciesService } from './tenancies.service';
 
@@ -18,11 +18,17 @@ class CreateTenancyDto {
 class InviteDto {
   @IsOptional() @IsEmail() email?: string;
   @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() tenantName?: string;
+  @IsOptional() @IsEnum(InvitationChannel) channel?: InvitationChannel;
   @IsOptional() expiresInDays?: number;
 }
 
 class TokenDto {
   @IsString() token: string;
+}
+
+class OptionalTokenDto {
+  @IsOptional() @IsString() token?: string;
 }
 
 @ApiTags('Tenancies')
@@ -37,8 +43,42 @@ export class TenanciesController {
   }
 
   @Get('tenancies')
-  async list(@CurrentUser() user: User, @ActiveRole() role: PortalRole) {
-    return new ResponseDto('Tenancies', await this.tenancies.list(user.id, role));
+  async list(
+    @CurrentUser() user: User,
+    @ActiveRole() role: PortalRole,
+    @Query('propertyId') propertyId?: string,
+  ) {
+    return new ResponseDto('Tenancies', await this.tenancies.list(user.id, role, propertyId));
+  }
+
+  @Get('tenancies/invitations')
+  async invitations(
+    @CurrentUser() user: User,
+    @ActiveRole() role: PortalRole,
+    @Query('propertyId') propertyId?: string,
+  ) {
+    return new ResponseDto('Invitations', await this.tenancies.listInvitations(user.id, role, propertyId));
+  }
+
+  @Public()
+  @Get('tenancies/invitations/lookup')
+  async lookup(@Query('token') token: string) {
+    return new ResponseDto('Invitation', await this.tenancies.lookup(token));
+  }
+
+  @Post('tenancies/invitations/:id/accept')
+  async acceptById(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: OptionalTokenDto) {
+    return new ResponseDto('Invitation accepted', await this.tenancies.respondById(user, id, true, dto.token));
+  }
+
+  @Post('tenancies/invitations/:id/decline')
+  async declineById(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: OptionalTokenDto) {
+    return new ResponseDto('Invitation declined', await this.tenancies.respondById(user, id, false, dto.token));
+  }
+
+  @Post('tenancies/invitations/:id/revoke')
+  async revoke(@CurrentUser() user: User, @ActiveRole() role: PortalRole, @Param('id') id: string) {
+    return new ResponseDto('Invitation revoked', await this.tenancies.revoke(user.id, role, id));
   }
 
   @Get('tenancies/:id')

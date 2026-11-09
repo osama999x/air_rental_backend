@@ -42,6 +42,7 @@ class UpdateMeDto {
 
   @ApiPropertyOptional()
   @IsOptional() @IsString() @Length(0, 32) emergencyContactPhone?: string;
+  @IsOptional() @IsString() @Length(0, 80) emergencyContactRelationship?: string;
 
   @ApiPropertyOptional({ type: 'string', format: 'binary', description: 'Profile photo. JPEG, PNG, or WebP.' })
   @IsOptional() file?: string;
@@ -60,6 +61,7 @@ class ProfileDto {
   @IsOptional() @IsString() currentAddress?: string;
   @IsOptional() @IsString() emergencyContactName?: string;
   @IsOptional() @IsString() emergencyContactPhone?: string;
+  @IsOptional() @IsString() emergencyContactRelationship?: string;
 }
 
 class RoleDto {
