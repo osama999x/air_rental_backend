@@ -267,6 +267,32 @@ export class AuthService {
     );
   }
 
+  async googleAccessToken(accessToken: string, meta: RequestMeta, names?: { firstName?: string; lastName?: string }) {
+    const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) throw new UnauthorizedException('Google sign-in was rejected');
+    const profile = await response.json() as {
+      sub?: string;
+      email?: string;
+      email_verified?: boolean;
+      given_name?: string;
+      family_name?: string;
+    };
+    if (!profile.sub || !profile.email) throw new UnauthorizedException('Google token did not include an email');
+    return this.linkOrCreate(
+      {
+        provider: AuthProvider.GOOGLE,
+        subject: profile.sub,
+        email: profile.email,
+        emailVerified: Boolean(profile.email_verified),
+        firstName: names?.firstName || profile.given_name || 'Google',
+        lastName: names?.lastName || profile.family_name || 'User',
+      },
+      meta,
+    );
+  }
+
   async apple(idToken: string, meta: RequestMeta, names?: { firstName?: string; lastName?: string }) {
     const clientId = this.config.get<string>('APPLE_CLIENT_ID');
     if (!clientId) throw new ServiceUnavailableException('Apple sign-in is not configured');

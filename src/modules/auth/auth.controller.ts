@@ -10,6 +10,7 @@ import {
   BiometricKeyDto,
   BiometricVerifyDto,
   EmailDto,
+  GoogleAuthDto,
   IdentityTokenDto,
   PhoneDto,
   VerifyPhoneDto,
@@ -79,11 +80,12 @@ export class AuthController {
 
   @Public()
   @Post('google')
-  async google(@Body() dto: IdentityTokenDto, @Req() req: Request) {
-    return new ResponseDto(
-      'Google sign-in completed',
-      await this.auth.google(dto.idToken, { ...this.meta(req), deviceName: dto.deviceName, platform: dto.platform }, dto),
-    );
+  async google(@Body() dto: GoogleAuthDto, @Req() req: Request) {
+    const meta = { ...this.meta(req), deviceName: dto.deviceName, platform: dto.platform };
+    const session = dto.accessToken
+      ? await this.auth.googleAccessToken(dto.accessToken, meta, dto)
+      : await this.auth.google(dto.idToken || '', meta, dto);
+    return new ResponseDto('Google sign-in completed', session);
   }
 
   @Public()

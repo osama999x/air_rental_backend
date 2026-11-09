@@ -5,6 +5,7 @@ import {
   IsString,
   Length,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { PortalRole } from '../../../common/enums';
 
@@ -112,6 +113,32 @@ export class ResetPasswordDto {
   @IsString()
   @MinLength(10)
   password: string;
+}
+
+export class GoogleAuthDto {
+  @ValidateIf((dto: GoogleAuthDto) => !dto.accessToken)
+  @IsString()
+  idToken?: string;
+
+  @ValidateIf((dto: GoogleAuthDto) => !dto.idToken)
+  @IsString()
+  accessToken?: string;
+
+  @IsOptional()
+  @IsString()
+  firstName?: string;
+
+  @IsOptional()
+  @IsString()
+  lastName?: string;
+
+  @IsOptional()
+  @IsString()
+  deviceName?: string;
+
+  @IsOptional()
+  @IsString()
+  platform?: string;
 }
 
 export class IdentityTokenDto {
