@@ -41,6 +41,9 @@ export class Tenancy extends BaseEntity {
   @Column({ type: 'varchar', length: 3 })
   currencyCode: string;
 
+  @Column({ type: 'decimal', precision: 19, scale: 4, nullable: true })
+  monthlyRent?: string | null;
+
   @Column({ type: 'uuid', nullable: true })
   chatThreadId?: string | null;
 }
@@ -59,6 +62,9 @@ export class Invitation extends CreatedEntity {
 
   @Column({ type: 'varchar', length: 120, nullable: true })
   tenantName?: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  notes?: string | null;
 
   @Column({ type: 'varchar', length: 16, default: InvitationChannel.LINK })
   channel: InvitationChannel;

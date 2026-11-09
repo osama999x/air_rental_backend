@@ -12,6 +12,7 @@ import {
   AgreementStatus,
   InvitationChannel,
   InvitationStatus,
+  MediaKind,
   ParticipantSide,
   PortalRole,
   PropertyStatus,
@@ -23,10 +24,12 @@ import { randomToken, sha256 } from '../../common/utils/tokens.util';
 import {
   ChatParticipant,
   ChatThread,
+  City,
   InsurancePolicy,
   Invitation,
   OwnerProfile,
   Property,
+  PropertyMedia,
   Tenancy,
   TenancyAgreement,
   TenancyParticipant,
@@ -38,6 +41,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuthService } from '../auth/auth.service';
 import { JobsService } from '../jobs/jobs.service';
 import { MailService } from '../notifications/mail.service';
+import { StorageService } from '../storage/storage.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { IdentityDocumentsService } from '../users/identity-documents.service';
 import { ConfigService } from '@nestjs/config';
@@ -49,6 +53,8 @@ export class TenanciesService implements OnModuleInit {
     @InjectRepository(Tenancy) private readonly tenancies: Repository<Tenancy>,
     @InjectRepository(Invitation) private readonly invitations: Repository<Invitation>,
     @InjectRepository(Property) private readonly properties: Repository<Property>,
+    @InjectRepository(PropertyMedia) private readonly media: Repository<PropertyMedia>,
+    @InjectRepository(City) private readonly cities: Repository<City>,
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(InsurancePolicy) private readonly policies: Repository<InsurancePolicy>,
     @InjectRepository(TenancyAgreement) private readonly agreements: Repository<TenancyAgreement>,
@@ -61,6 +67,7 @@ export class TenanciesService implements OnModuleInit {
     private readonly jobs: JobsService,
     private readonly config: ConfigService,
     private readonly mail: MailService,
+    private readonly storage: StorageService,
     private readonly auth: AuthService,
     private readonly identity: IdentityDocumentsService,
   ) {}
@@ -87,6 +94,7 @@ export class TenanciesService implements OnModuleInit {
     endDate?: string;
     currencyCode?: string;
     tenantOrganizationId?: string;
+    monthlyRent?: string;
   }) {
     await this.access.assertPermission(userId, role, input.propertyId, 'TENANCY_MANAGE');
     const property = await this.properties.findOne({ where: { id: input.propertyId } });
@@ -105,6 +113,7 @@ export class TenanciesService implements OnModuleInit {
       current.endDate = input.endDate ?? null;
       if (input.currencyCode) current.currencyCode = input.currencyCode;
       if (input.tenantOrganizationId) current.tenantOrganizationId = input.tenantOrganizationId;
+      if (input.monthlyRent) current.monthlyRent = input.monthlyRent;
       const saved = await this.tenancies.save(current);
       if (older.length) {
         await this.tenancies.update({ id: In(older.map((row) => row.id)) }, { status: TenancyStatus.TERMINATED });
@@ -130,6 +139,7 @@ export class TenanciesService implements OnModuleInit {
       endDate: input.endDate,
       currencyCode: input.currencyCode || property.currencyCode,
       tenantOrganizationId: input.tenantOrganizationId,
+      monthlyRent: input.monthlyRent || null,
     }));
     await this.audit.record({
       actorUserId: userId,
@@ -150,6 +160,7 @@ export class TenanciesService implements OnModuleInit {
     tenantName?: string;
     channel?: InvitationChannel;
     expiresInDays?: number;
+    notes?: string;
   }) {
     const tenancy = await this.requireManage(userId, role, tenancyId);
     if (![TenancyStatus.PROPOSED, TenancyStatus.INVITED, TenancyStatus.DECLINED].includes(tenancy.status)) {
@@ -167,6 +178,7 @@ export class TenanciesService implements OnModuleInit {
       email: input.email ? normalizeEmail(input.email) : null,
       phone: input.phone?.trim() || null,
       tenantName: input.tenantName?.trim() || null,
+      notes: input.notes?.trim() || null,
       channel,
       tokenHash: sha256(raw),
       status: InvitationStatus.PENDING,
@@ -523,6 +535,11 @@ export class TenanciesService implements OnModuleInit {
     tenancy: Tenancy | null,
     property: Property | null,
   ) {
+    const owner = tenancy ? await this.ownerCard(tenancy.ownerUserId) : null;
+    const place = await this.propertyPlace(property);
+    const agreement = tenancy
+      ? await this.agreements.findOne({ where: { tenancyId: tenancy.id }, order: { version: 'DESC' } })
+      : null;
     return {
       invitationId: invitation.id,
       id: invitation.id,
@@ -530,8 +547,17 @@ export class TenanciesService implements OnModuleInit {
       propertyId: tenancy?.propertyId ?? null,
       propertyCode: property?.visibleCode ?? null,
       propertyName: property?.name ?? null,
+      propertyType: property?.propertyType ?? null,
+      propertyUnit: property?.unit ?? null,
+      propertyAddress: property?.addressLine ?? null,
+      propertyCity: place.city,
+      propertyPhotoUrl: place.photoUrl,
+      rent: agreement?.monthlyRent ?? tenancy?.monthlyRent ?? null,
+      notes: invitation.notes ?? agreement?.additionalTerms ?? null,
       tenantName: invitation.tenantName ?? null,
-      invitedBy: tenancy ? await this.ownerDisplayName(tenancy.ownerUserId) : null,
+      invitedBy: owner?.name ?? null,
+      invitedByPhone: owner?.phone ?? null,
+      invitedByPhotoUrl: owner?.photoUrl ?? null,
       channel: invitation.channel,
       status: this.effectiveStatus(invitation),
       expiresAt: invitation.expiresAt,
@@ -541,13 +567,33 @@ export class TenanciesService implements OnModuleInit {
     };
   }
 
-  private async ownerDisplayName(userId: string) {
+  private async ownerCard(userId: string) {
     const [ownerUser, ownerProfile] = await Promise.all([
       this.users.findOne({ where: { id: userId } }),
       this.owners.findOne({ where: { userId } }),
     ]);
     const name = (ownerProfile?.displayName || [ownerUser?.firstName, ownerUser?.lastName].filter(Boolean).join(' ')).trim();
-    return name || null;
+    return {
+      name: name || null,
+      phone: ownerUser?.phone ?? null,
+      photoUrl: ownerUser?.avatarStorageKey
+        ? this.storage.signedPublicUrl(`public/avatars/${userId}`, `avatar:${userId}`)
+        : null,
+    };
+  }
+
+  private async propertyPlace(property: Property | null) {
+    if (!property) return { city: null, photoUrl: null };
+    const [city, photo] = await Promise.all([
+      property.cityId ? this.cities.findOne({ where: { id: property.cityId } }) : Promise.resolve(null),
+      this.media.findOne({ where: { propertyId: property.id, kind: MediaKind.PHOTO }, order: { createdAt: 'ASC' } }),
+    ]);
+    return {
+      city: city?.name ?? null,
+      photoUrl: photo
+        ? this.storage.signedPublicUrl(`public/media/${photo.id}`, `property-media:${photo.id}`)
+        : null,
+    };
   }
 
   private async accountExists(invitation: Invitation) {

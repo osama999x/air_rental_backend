@@ -32,6 +32,9 @@ export class Property extends BaseEntity {
   @Column({ type: 'varchar', length: 255 })
   addressLine: string;
 
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  unit?: string | null;
+
   @Column({ type: 'varchar', length: 24, nullable: true })
   postalCode?: string | null;
 

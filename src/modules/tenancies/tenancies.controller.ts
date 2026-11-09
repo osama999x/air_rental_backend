@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import { IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
 import { ActiveRole, CurrentUser, Public } from '../../common/decorators';
 import { ResponseDto } from '../../common/dto/response';
 import { InvitationChannel, PortalRole, TenancyStatus } from '../../common/enums';
@@ -14,12 +14,14 @@ class CreateTenancyDto {
   @IsOptional() @IsDateString() endDate?: string;
   @IsOptional() @IsString() currencyCode?: string;
   @IsOptional() @IsUUID() tenantOrganizationId?: string;
+  @IsOptional() @Matches(/^\d+(\.\d{1,4})?$/) monthlyRent?: string;
 }
 
 class InviteDto {
   @IsOptional() @IsEmail() email?: string;
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() tenantName?: string;
+  @IsOptional() @IsString() @MaxLength(2000) notes?: string;
   @IsOptional() @IsEnum(InvitationChannel) channel?: InvitationChannel;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(30) expiresInDays?: number;
 }

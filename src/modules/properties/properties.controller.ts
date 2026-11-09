@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { IsBoolean, IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { ActiveRole, CurrentUser, Roles } from '../../common/decorators';
 import { PageQueryDto } from '../../common/dto/page-query.dto';
 import { ResponseDto } from '../../common/dto/response';
@@ -30,6 +30,9 @@ class CreatePropertyDto {
 
   @ApiProperty({ example: '12 Example Street' })
   @IsString() addressLine: string;
+
+  @ApiPropertyOptional({ example: 'Shop 4' })
+  @IsOptional() @IsString() @MaxLength(80) unit?: string;
 
   @ApiPropertyOptional()
   @IsOptional() @IsString() postalCode?: string;

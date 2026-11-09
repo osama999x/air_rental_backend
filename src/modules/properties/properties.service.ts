@@ -32,6 +32,7 @@ export class PropertiesService {
     region?: string;
     area?: string;
     addressLine: string;
+    unit?: string;
     postalCode?: string;
     latitude?: string;
     longitude?: string;

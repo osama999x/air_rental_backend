@@ -9,7 +9,7 @@ import { promises as fs } from 'fs';
 import { dirname, resolve } from 'path';
 import { fullFileStream } from '../../common/utils/file-stream';
 import { apiPublicOrigin } from '../../common/utils/public-origin';
-import { randomToken } from '../../common/utils/tokens.util';
+import { randomToken, safeEqual, signPayload } from '../../common/utils/tokens.util';
 import { assertAllowedUpload, readEncodedFile, storedFileName } from '../../common/utils/files.util';
 
 @Injectable()
@@ -91,6 +91,23 @@ export class StorageService {
     const port = Number(this.config.get('PORT')) || 3009;
     const origin = apiPublicOrigin(configured, port);
     return `${origin}/api/v1/${downloadPath.replace(/^\//, '')}`;
+  }
+
+  signedPublicUrl(downloadPath: string, resource: string, ttlSeconds = 6 * 60 * 60): string {
+    const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
+    const sig = signPayload(`${resource}:${exp}`, this.signingSecret());
+    return `${this.publicUrl(downloadPath)}?exp=${exp}&sig=${sig}`;
+  }
+
+  verifySigned(resource: string, exp: string, sig: string): boolean {
+    const expiry = Number(exp);
+    if (!exp || !sig || !Number.isFinite(expiry) || expiry < Math.floor(Date.now() / 1000)) return false;
+    const expected = signPayload(`${resource}:${expiry}`, this.signingSecret());
+    return safeEqual(expected, sig);
+  }
+
+  private signingSecret() {
+    return this.config.get<string>('JWT_SECRET') || 'development-only-access-secret';
   }
 
   async read(key: string): Promise<Buffer | null> {
