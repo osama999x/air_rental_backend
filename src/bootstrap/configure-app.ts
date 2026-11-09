@@ -16,6 +16,7 @@ export function configureApp(
   redis: RedisService,
 ): void {
   const logger = new Logger('Http');
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
   app.setGlobalPrefix(API_PREFIX);
   app.enableShutdownHooks();

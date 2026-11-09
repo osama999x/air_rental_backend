@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsDateString, IsEmail, IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 import { ActiveRole, CurrentUser, Public } from '../../common/decorators';
 import { ResponseDto } from '../../common/dto/response';
 import { InvitationChannel, PortalRole, TenancyStatus } from '../../common/enums';
@@ -20,7 +21,7 @@ class InviteDto {
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() tenantName?: string;
   @IsOptional() @IsEnum(InvitationChannel) channel?: InvitationChannel;
-  @IsOptional() expiresInDays?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(30) expiresInDays?: number;
 }
 
 class TokenDto {

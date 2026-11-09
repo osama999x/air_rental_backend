@@ -125,6 +125,9 @@ export class TenanciesService implements OnModuleInit {
     expiresInDays?: number;
   }) {
     const tenancy = await this.requireManage(userId, role, tenancyId);
+    if (![TenancyStatus.PROPOSED, TenancyStatus.INVITED, TenancyStatus.DECLINED].includes(tenancy.status)) {
+      throw new BadRequestException('This tenancy cannot take another invitation');
+    }
     const channel = input.channel
       ?? (input.email || input.phone ? InvitationChannel.CONTACT : InvitationChannel.LINK);
     if (channel === InvitationChannel.CONTACT && !input.email && !input.phone) {
@@ -233,8 +236,7 @@ export class TenanciesService implements OnModuleInit {
     const status = this.effectiveStatus(invitation);
     if (status !== InvitationStatus.PENDING) throw new GoneException(this.closedMessage(status));
     await this.invitations.update({ id }, { status: InvitationStatus.REVOKED, revokedAt: new Date() });
-    const stillPending = await this.invitations.find({ where: { tenancyId: tenancy.id, status: InvitationStatus.PENDING } });
-    const open = stillPending.filter((row) => row.id !== id && this.effectiveStatus(row) === InvitationStatus.PENDING);
+    const open = await this.openInvitations(tenancy.id, id);
     if (!open.length && tenancy.status === TenancyStatus.INVITED) {
       await this.tenancies.update({ id: tenancy.id }, { status: TenancyStatus.PROPOSED });
     }
@@ -398,7 +400,10 @@ export class TenanciesService implements OnModuleInit {
     }
     if (!accept) {
       await this.invitations.update({ id: invitation.id }, { status: InvitationStatus.DECLINED });
-      await this.tenancies.update({ id: invitation.tenancyId }, { status: TenancyStatus.DECLINED });
+      const open = await this.openInvitations(invitation.tenancyId, invitation.id);
+      if (!open.length) {
+        await this.tenancies.update({ id: invitation.tenancyId }, { status: TenancyStatus.DECLINED });
+      }
       return { status: InvitationStatus.DECLINED, tenancyId: invitation.tenancyId };
     }
     await this.dataSource.transaction(async (manager) => {
@@ -406,12 +411,23 @@ export class TenanciesService implements OnModuleInit {
         status: InvitationStatus.ACCEPTED,
         acceptedByUserId: user.id,
       });
+      await manager
+        .createQueryBuilder()
+        .update(Invitation)
+        .set({ status: InvitationStatus.REVOKED, revokedAt: new Date() })
+        .where('tenancyId = :tenancyId AND status = :status AND id != :id', {
+          tenancyId: invitation.tenancyId,
+          status: InvitationStatus.PENDING,
+          id: invitation.id,
+        })
+        .execute();
       await manager.update(Tenancy, { id: invitation.tenancyId }, {
         tenantUserId: user.id,
         status: TenancyStatus.ACCEPTED,
       });
       const thread = await manager.save(manager.create(ChatThread, { tenancyId: invitation.tenancyId }));
       const tenancy = await manager.findOne(Tenancy, { where: { id: invitation.tenancyId } });
+      if (!tenancy) throw new NotFoundException('Tenancy was not found');
       await manager.update(Tenancy, { id: invitation.tenancyId }, { chatThreadId: thread.id });
       const participants = [
         { threadId: thread.id, userId: tenancy.ownerUserId, side: ParticipantSide.OWNER },
@@ -534,6 +550,11 @@ export class TenanciesService implements OnModuleInit {
     const invitation = await this.invitations.findOne({ where: { tokenHash: sha256(token) } });
     if (!invitation) throw new NotFoundException('Invitation was not found');
     return invitation;
+  }
+
+  private async openInvitations(tenancyId: string, exceptId: string) {
+    const rows = await this.invitations.find({ where: { tenancyId, status: InvitationStatus.PENDING } });
+    return rows.filter((row) => row.id !== exceptId && this.effectiveStatus(row) === InvitationStatus.PENDING);
   }
 
   private effectiveStatus(invitation: Invitation): InvitationStatus {
