@@ -95,6 +95,33 @@ export class TenanciesService implements OnModuleInit {
       where: { propertyId: input.propertyId, status: TenancyStatus.ACTIVE },
     });
     if (active) throw new BadRequestException('This property already has an active tenancy');
+    const proposed = await this.tenancies.find({
+      where: { propertyId: property.id, status: TenancyStatus.PROPOSED },
+      order: { createdAt: 'DESC' },
+    });
+    if (proposed.length) {
+      const [current, ...older] = proposed;
+      current.startDate = input.startDate;
+      current.endDate = input.endDate ?? null;
+      if (input.currencyCode) current.currencyCode = input.currencyCode;
+      if (input.tenantOrganizationId) current.tenantOrganizationId = input.tenantOrganizationId;
+      const saved = await this.tenancies.save(current);
+      if (older.length) {
+        await this.tenancies.update({ id: In(older.map((row) => row.id)) }, { status: TenancyStatus.TERMINATED });
+      }
+      await this.audit.record({
+        actorUserId: userId,
+        actorType: 'USER',
+        activeRole: role,
+        action: 'tenancy.proposed',
+        entityType: 'tenancy',
+        entityId: saved.id,
+        propertyId: property.id,
+        tenancyId: saved.id,
+        metadata: { reused: true },
+      });
+      return saved;
+    }
     const tenancy = await this.tenancies.save(this.tenancies.create({
       propertyId: property.id,
       ownerUserId: property.ownerUserId,
@@ -463,7 +490,10 @@ export class TenanciesService implements OnModuleInit {
   }
 
   private shareUrl(token: string) {
-    const origin = String(this.config.get('WEB_APP_URL') || 'http://localhost:3001').replace(/\/$/, '');
+    const origin = String(this.config.get('WEB_APP_URL') || 'http://localhost:3001')
+      .trim()
+      .replace(/\/+$/, '')
+      .replace(/\.+$/, '');
     return `${origin}/portal/invite/${token}`;
   }
 
