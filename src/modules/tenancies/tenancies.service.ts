@@ -191,7 +191,7 @@ export class TenanciesService implements OnModuleInit {
       if (!incoming && !outgoing) continue;
       const property = await this.properties.findOne({ where: { id: tenancy.propertyId } });
       visible.push({
-        ...this.presentInvitation(invitation, tenancy, property),
+        ...(await this.presentInvitation(invitation, tenancy, property)),
         direction: role === PortalRole.TENANT || (incoming && !outgoing) ? 'incoming' : 'outgoing',
       });
     }
@@ -208,7 +208,7 @@ export class TenanciesService implements OnModuleInit {
     const tenancy = await this.tenancies.findOne({ where: { id: invitation.tenancyId } });
     const property = tenancy ? await this.properties.findOne({ where: { id: tenancy.propertyId } }) : null;
     return {
-      ...this.presentInvitation(invitation, tenancy, property),
+      ...(await this.presentInvitation(invitation, tenancy, property)),
       accountExists: await this.accountExists(invitation),
     };
   }
@@ -335,7 +335,15 @@ export class TenanciesService implements OnModuleInit {
           .getMany();
       }
     }
-    return propertyId ? rows.filter((row) => row.propertyId === propertyId) : rows;
+    const visible = propertyId ? rows.filter((row) => row.propertyId === propertyId) : rows;
+    if (!visible.length) return [];
+    const properties = await this.properties.find({ where: { id: In(visible.map((row) => row.propertyId)) } });
+    const byId = new Map(properties.map((property) => [property.id, property]));
+    return visible.map((row) => ({
+      ...row,
+      propertyCode: byId.get(row.propertyId)?.visibleCode ?? null,
+      propertyName: byId.get(row.propertyId)?.name ?? null,
+    }));
   }
 
   async get(userId: string, role: PortalRole | null, id: string) {
@@ -480,7 +488,7 @@ export class TenanciesService implements OnModuleInit {
     return { sent: false, reason: 'OWNER_SHARES_LINK' };
   }
 
-  private presentInvitation(
+  private async presentInvitation(
     invitation: Invitation,
     tenancy: Tenancy | null,
     property: Property | null,
@@ -493,6 +501,7 @@ export class TenanciesService implements OnModuleInit {
       propertyCode: property?.visibleCode ?? null,
       propertyName: property?.name ?? null,
       tenantName: invitation.tenantName ?? null,
+      invitedBy: tenancy ? await this.ownerDisplayName(tenancy.ownerUserId) : null,
       channel: invitation.channel,
       status: this.effectiveStatus(invitation),
       expiresAt: invitation.expiresAt,
@@ -500,6 +509,15 @@ export class TenanciesService implements OnModuleInit {
       endDate: tenancy?.endDate ?? null,
       createdAt: invitation.createdAt,
     };
+  }
+
+  private async ownerDisplayName(userId: string) {
+    const [ownerUser, ownerProfile] = await Promise.all([
+      this.users.findOne({ where: { id: userId } }),
+      this.owners.findOne({ where: { userId } }),
+    ]);
+    const name = (ownerProfile?.displayName || [ownerUser?.firstName, ownerUser?.lastName].filter(Boolean).join(' ')).trim();
+    return name || null;
   }
 
   private async accountExists(invitation: Invitation) {
