@@ -268,6 +268,49 @@ export class TenanciesService implements OnModuleInit {
     return this.applyResponse(user, invitation, accept);
   }
 
+  async review(user: User, id: string, message: string, token?: string) {
+    const reviewMessage = message.trim();
+    if (!reviewMessage) throw new BadRequestException('message is required');
+    const invitation = await this.invitations.findOne({ where: { id } });
+    if (!invitation) throw new NotFoundException('Invitation was not found');
+    if (token && invitation.tokenHash !== sha256(token)) {
+      throw new ForbiddenException('This invitation link does not match');
+    }
+    if (!token && !this.addressedTo(invitation, user)) {
+      throw new ForbiddenException('This invitation was issued to a different email');
+    }
+    const status = this.effectiveStatus(invitation);
+    if (status !== InvitationStatus.PENDING) throw new GoneException(this.closedMessage(status));
+    if (invitation.email && normalizeEmail(invitation.email) !== user.email) {
+      throw new ForbiddenException('This invitation was issued to a different email');
+    }
+    await this.invitations.update({ id }, { reviewMessage });
+    const tenancy = await this.tenancies.findOne({ where: { id: invitation.tenancyId } });
+    if (tenancy) {
+      const property = await this.properties.findOne({ where: { id: tenancy.propertyId } });
+      await this.notifications.notify({
+        userId: tenancy.ownerUserId,
+        type: 'tenancy.invitation_review',
+        title: 'Invitation needs a correction',
+        body: reviewMessage,
+        dedupeParts: ['invitation-review', invitation.id, Date.now()],
+        data: { invitationId: invitation.id, tenancyId: tenancy.id, propertyId: tenancy.propertyId },
+      });
+      await this.audit.record({
+        actorUserId: user.id,
+        actorType: 'USER',
+        activeRole: PortalRole.TENANT,
+        action: 'tenancy.invitation_reviewed',
+        entityType: 'invitation',
+        entityId: id,
+        propertyId: tenancy.propertyId,
+        tenancyId: tenancy.id,
+        metadata: { propertyName: property?.name ?? null },
+      });
+    }
+    return { id, status: InvitationStatus.PENDING, reviewMessage };
+  }
+
   async revoke(userId: string, role: PortalRole | null, id: string) {
     const invitation = await this.invitations.findOne({ where: { id } });
     if (!invitation) throw new NotFoundException('Invitation was not found');
@@ -554,6 +597,7 @@ export class TenanciesService implements OnModuleInit {
       propertyPhotoUrl: place.photoUrl,
       rent: agreement?.monthlyRent ?? tenancy?.monthlyRent ?? null,
       notes: invitation.notes ?? agreement?.additionalTerms ?? null,
+      reviewMessage: invitation.reviewMessage ?? null,
       tenantName: invitation.tenantName ?? null,
       invitedBy: owner?.name ?? null,
       invitedByPhone: owner?.phone ?? null,

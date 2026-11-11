@@ -66,6 +66,9 @@ export class Invitation extends CreatedEntity {
   @Column({ type: 'text', nullable: true })
   notes?: string | null;
 
+  @Column({ type: 'text', nullable: true })
+  reviewMessage?: string | null;
+
   @Column({ type: 'varchar', length: 16, default: InvitationChannel.LINK })
   channel: InvitationChannel;
 

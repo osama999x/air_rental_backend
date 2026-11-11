@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
+import { IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { ActiveRole, CurrentUser, Public } from '../../common/decorators';
 import { ResponseDto } from '../../common/dto/response';
 import { InvitationChannel, PortalRole, TenancyStatus } from '../../common/enums';
@@ -31,6 +31,11 @@ class TokenDto {
 }
 
 class OptionalTokenDto {
+  @IsOptional() @IsString() token?: string;
+}
+
+class ReviewDto {
+  @IsString() @MinLength(1) @MaxLength(2000) message: string;
   @IsOptional() @IsString() token?: string;
 }
 
@@ -77,6 +82,11 @@ export class TenanciesController {
   @Post('tenancies/invitations/:id/decline')
   async declineById(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: OptionalTokenDto) {
     return new ResponseDto('Invitation declined', await this.tenancies.respondById(user, id, false, dto.token));
+  }
+
+  @Post('tenancies/invitations/:id/review')
+  async review(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: ReviewDto) {
+    return new ResponseDto('Invitation review sent', await this.tenancies.review(user, id, dto.message, dto.token));
   }
 
   @Post('tenancies/invitations/:id/revoke')
