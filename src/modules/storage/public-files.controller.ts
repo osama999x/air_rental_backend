@@ -35,6 +35,6 @@ export class PublicFilesController {
     }
     const user = await this.users.findOne({ where: { id } });
     if (!user?.avatarStorageKey) throw new NotFoundException('Profile photo was not found');
-    return this.storage.deliver(user.avatarStorageKey, user.avatarMimeType || 'image/jpeg', 'profile', true);
+    return this.storage.deliverFitted(user.avatarStorageKey, 256);
   }
 }

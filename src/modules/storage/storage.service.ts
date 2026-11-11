@@ -8,8 +8,9 @@ import { ConfigService } from '@nestjs/config';
 import { promises as fs } from 'fs';
 import { dirname, resolve } from 'path';
 import { fullFileStream } from '../../common/utils/file-stream';
+import { fitImage } from '../../common/utils/image-fit';
 import { apiPublicOrigin } from '../../common/utils/public-origin';
-import { randomToken, safeEqual, signPayload } from '../../common/utils/tokens.util';
+import { randomToken, safeEqual, sha256, signPayload } from '../../common/utils/tokens.util';
 import { assertAllowedUpload, readEncodedFile, storedFileName } from '../../common/utils/files.util';
 
 @Injectable()
@@ -127,6 +128,34 @@ export class StorageService {
     return new StreamableFile(fullFileStream(bytes), {
       type: type || 'application/octet-stream',
       disposition: `${inline ? 'inline' : 'attachment'}; filename="${safe}"`,
+      length: bytes.length,
+    });
+  }
+
+  async deliverFitted(key: string, maxEdge = 256) {
+    const cacheKey = `cache/fit-${maxEdge}/${sha256(key)}.jpg`;
+    let bytes = await this.read(cacheKey);
+    if (!bytes) {
+      const original = await this.read(key);
+      if (!original) throw new NotFoundException('File was not found');
+      try {
+        bytes = await fitImage(original, maxEdge);
+      } catch {
+        bytes = original;
+      }
+      if (bytes !== original) {
+        try {
+          const full = this.resolve(cacheKey);
+          await fs.mkdir(dirname(full), { recursive: true });
+          await fs.writeFile(full, bytes);
+        } catch {
+          // The resized bytes are still returned when the cache cannot be written.
+        }
+      }
+    }
+    return new StreamableFile(fullFileStream(bytes), {
+      type: 'image/jpeg',
+      disposition: 'inline; filename="avatar.jpg"',
       length: bytes.length,
     });
   }

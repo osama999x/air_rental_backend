@@ -4,7 +4,7 @@ export default Joi.object({
   NODE_ENV: Joi.string().valid('local', 'development', 'test', 'production', 'staging').default('development'),
   PORT: Joi.number().default(3000),
   API_VERSION: Joi.string().default('1.0.0'),
-  APP_PUBLIC_URL: Joi.string().default('http://localhost:3000'),
+  APP_PUBLIC_URL: Joi.string().default('https://api.airrental1.com'),
   WEB_APP_URL: Joi.string().default('http://localhost:3001'),
   IDENTITY_ENCRYPTION_KEY: Joi.string().default('development-only-identity-key'),
   CORS_ORIGINS: Joi.string().allow('').default(''),
