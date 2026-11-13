@@ -41,6 +41,19 @@ export class IdentityDocumentsController {
     return new ResponseDto('Identity documents', await this.identity.listForTenancy(user.id, role, id));
   }
 
+  @Post('tenancies/:id/identity-documents')
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadForTenant(
+    @CurrentUser() user: User,
+    @ActiveRole() role: PortalRole,
+    @Param('id') id: string,
+    @Body() dto: IdentityUploadDto,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    return new ResponseDto('Identity document stored', await this.identity.saveForTenancy(user.id, role, id, dto, file));
+  }
+
   @Get('identity-documents/:id/download')
   download(@CurrentUser() user: User, @ActiveRole() role: PortalRole, @Param('id') id: string) {
     return this.identity.download(user.id, role, id);

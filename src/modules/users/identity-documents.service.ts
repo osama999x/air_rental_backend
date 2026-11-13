@@ -11,6 +11,7 @@ import { Repository } from 'typeorm';
 import { fullFileStream } from '../../common/utils/file-stream';
 import { assertAllowedUpload } from '../../common/utils/files.util';
 import { openBytes, openText, sealBytes, sealText } from '../../common/utils/identity-crypto';
+import { Permission } from '../../common/constants/permissions';
 import {
   IdentityDocumentSide,
   IdentityDocumentType,
@@ -38,10 +39,36 @@ export class IdentityDocumentsService {
     return rows.map((row) => this.present(row, true));
   }
 
+  async saveForTenancy(
+    actorUserId: string,
+    role: PortalRole | null,
+    tenancyId: string,
+    input: { documentType: IdentityDocumentType; side: IdentityDocumentSide; documentNumber: string },
+    file?: Express.Multer.File,
+  ) {
+    const tenancy = await this.tenancies.findOne({ where: { id: tenancyId } });
+    if (!tenancy) throw new NotFoundException('Tenancy was not found');
+    if (!tenancy.tenantUserId) throw new ForbiddenException('This tenancy has no tenant yet');
+    if (role === PortalRole.OWNER) {
+      await this.access.assertProperty(actorUserId, role, tenancy.propertyId);
+    } else if (role === PortalRole.MANAGER) {
+      await this.access.assertPermission(actorUserId, role, tenancy.propertyId, Permission.PROPERTY_VIEW, tenancy.id);
+    } else {
+      throw new ForbiddenException('You cannot upload a tenant identity document');
+    }
+    return this.save(tenancy.tenantUserId, input, file, {
+      actorUserId,
+      role,
+      propertyId: tenancy.propertyId,
+      tenancyId: tenancy.id,
+    });
+  }
+
   async save(
     userId: string,
     input: { documentType: IdentityDocumentType; side: IdentityDocumentSide; documentNumber: string },
     file?: Express.Multer.File,
+    actor?: { actorUserId: string; role: PortalRole | null; propertyId: string; tenancyId: string },
   ) {
     if (!file?.buffer?.length) throw new BadRequestException('A photo or PDF of this side is required');
     const number = input.documentNumber.trim();
@@ -77,12 +104,19 @@ export class IdentityDocumentsService {
       ? await this.documents.save(Object.assign(existing, payload))
       : await this.documents.save(this.documents.create(payload));
     await this.audit.record({
-      actorUserId: userId,
+      actorUserId: actor?.actorUserId ?? userId,
       actorType: 'USER',
+      activeRole: actor?.role ?? null,
       action: 'identity.uploaded',
       entityType: 'identity_document',
       entityId: saved.id,
-      metadata: { documentType: input.documentType, side: input.side },
+      propertyId: actor?.propertyId ?? null,
+      tenancyId: actor?.tenancyId ?? null,
+      metadata: {
+        documentType: input.documentType,
+        side: input.side,
+        tenantUserId: actor ? userId : null,
+      },
     });
     return this.present(saved, true);
   }
