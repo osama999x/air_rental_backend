@@ -99,6 +99,7 @@ export class IdentityDocumentsService {
       mimeType: file.mimetype,
       originalName: (file.originalname || 'identity').slice(0, 180),
       verificationStatus: VerificationStatus.UNVERIFIED,
+      rejectionReason: null,
     };
     const saved = existing
       ? await this.documents.save(Object.assign(existing, payload))
@@ -119,6 +120,36 @@ export class IdentityDocumentsService {
       },
     });
     return this.present(saved, true);
+  }
+
+  async setVerification(
+    actorUserId: string,
+    role: PortalRole | null,
+    documentId: string,
+    input: { status: VerificationStatus.VERIFIED | VerificationStatus.REJECTED; reason?: string },
+  ) {
+    const document = await this.documents.findOne({ where: { id: documentId } });
+    if (!document) throw new NotFoundException('Identity document was not found');
+    const tenancy = await this.tenancyForVerification(actorUserId, role, document.userId);
+    const reason = input.reason?.trim() || '';
+    if (input.status === VerificationStatus.REJECTED && reason.length > 200) {
+      throw new BadRequestException('Reason must be 200 characters or less');
+    }
+    document.verificationStatus = input.status;
+    document.rejectionReason = input.status === VerificationStatus.REJECTED && reason ? reason.slice(0, 200) : null;
+    const saved = await this.documents.save(document);
+    await this.audit.record({
+      actorUserId,
+      actorType: 'USER',
+      activeRole: role,
+      action: 'identity.verification_updated',
+      entityType: 'identity_document',
+      entityId: saved.id,
+      propertyId: tenancy.propertyId,
+      tenancyId: tenancy.id,
+      metadata: { status: input.status, tenantUserId: document.userId },
+    });
+    return this.present(saved, false);
   }
 
   async listForTenancy(userId: string, role: PortalRole | null, tenancyId: string) {
@@ -161,6 +192,27 @@ export class IdentityDocumentsService {
     });
   }
 
+  private async tenancyForVerification(actorUserId: string, role: PortalRole | null, tenantUserId: string) {
+    if (role !== PortalRole.OWNER && role !== PortalRole.MANAGER) {
+      throw new ForbiddenException('You cannot verify this identity document');
+    }
+    const tenancies = await this.tenancies.find({ where: { tenantUserId } });
+    if (!tenancies.length) throw new NotFoundException('Tenancy was not found');
+    for (const tenancy of tenancies) {
+      try {
+        if (role === PortalRole.OWNER) {
+          await this.access.assertProperty(actorUserId, role, tenancy.propertyId);
+        } else {
+          await this.access.assertPermission(actorUserId, role, tenancy.propertyId, Permission.PROPERTY_VIEW, tenancy.id);
+        }
+        return tenancy;
+      } catch {
+        continue;
+      }
+    }
+    throw new ForbiddenException('You cannot verify this identity document');
+  }
+
   private async requireReadableTenancy(userId: string, role: PortalRole | null, tenancyId: string) {
     const tenancy = await this.tenancies.findOne({ where: { id: tenancyId } });
     if (!tenancy) throw new NotFoundException('Tenancy was not found');
@@ -191,6 +243,7 @@ export class IdentityDocumentsService {
       documentType: row.documentType,
       side: row.side,
       verificationStatus: row.verificationStatus,
+      rejectionReason: row.verificationStatus === VerificationStatus.REJECTED ? row.rejectionReason || null : null,
       mimeType: row.mimeType,
       createdAt: row.createdAt,
       ...(includeNumber

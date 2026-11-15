@@ -1,10 +1,10 @@
-import { Body, Controller, Get, Param, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
-import { IsEnum, IsString, MinLength } from 'class-validator';
+import { IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { ActiveRole, CurrentUser } from '../../common/decorators';
 import { ResponseDto } from '../../common/dto/response';
-import { IdentityDocumentSide, IdentityDocumentType, PortalRole } from '../../common/enums';
+import { IdentityDocumentSide, IdentityDocumentType, PortalRole, VerificationStatus } from '../../common/enums';
 import { User } from '../../database/entities';
 import { IdentityDocumentsService } from './identity-documents.service';
 
@@ -12,6 +12,13 @@ class IdentityUploadDto {
   @IsEnum(IdentityDocumentType) documentType: IdentityDocumentType;
   @IsEnum(IdentityDocumentSide) side: IdentityDocumentSide;
   @IsString() @MinLength(4) documentNumber: string;
+}
+
+class VerifyIdentityDto {
+  @IsIn([VerificationStatus.VERIFIED, VerificationStatus.REJECTED])
+  status: VerificationStatus.VERIFIED | VerificationStatus.REJECTED;
+
+  @IsOptional() @IsString() @MaxLength(200) reason?: string;
 }
 
 @ApiTags('Identity')
@@ -52,6 +59,16 @@ export class IdentityDocumentsController {
     @UploadedFile() file?: Express.Multer.File,
   ) {
     return new ResponseDto('Identity document stored', await this.identity.saveForTenancy(user.id, role, id, dto, file));
+  }
+
+  @Patch('identity-documents/:id/verification')
+  async verify(
+    @CurrentUser() user: User,
+    @ActiveRole() role: PortalRole,
+    @Param('id') id: string,
+    @Body() dto: VerifyIdentityDto,
+  ) {
+    return new ResponseDto('Identity document updated', await this.identity.setVerification(user.id, role, id, dto));
   }
 
   @Get('identity-documents/:id/download')

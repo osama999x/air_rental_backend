@@ -233,6 +233,9 @@ export class IdentityDocument extends BaseEntity {
 
   @Column({ type: 'varchar', length: 16, default: VerificationStatus.UNVERIFIED })
   verificationStatus: VerificationStatus;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  rejectionReason?: string | null;
 }
 
 @Entity('login_attempts')
