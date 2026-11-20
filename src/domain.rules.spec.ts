@@ -9,6 +9,7 @@ import {
   canGrantPermissions,
   canReadDocument,
   canReadOwnerFinances,
+  assignmentGrants,
   canReadProperty,
   canUseAdminApi,
   hasPermission,
@@ -96,6 +97,26 @@ describe('Air Rental business rules', () => {
     });
     expect(canReadProperty(manager, 'property-a', now)).toBe(false);
     expect(canReadDocument(manager, { propertyId: 'property-a', tenancyId: null, uploadedByUserId: 'other' }, now)).toBe(false);
+  });
+
+  it('maps manager app permissions onto the existing property checks', () => {
+    const manager = actor({
+      userId: 'manager',
+      activeRole: PortalRole.MANAGER,
+      heldRoles: [PortalRole.MANAGER],
+      assignments: [{
+        id: 'as-3',
+        side: AssignmentSide.OWNER,
+        status: AssignmentStatus.ACTIVE,
+        propertyIds: ['property-a'],
+        permissions: ['TENANT_DETAILS', 'MANAGE_AGREEMENTS'],
+      }],
+    });
+    expect(canReadProperty(manager, 'property-a', now)).toBe(true);
+    expect(canReadProperty(manager, 'property-b', now)).toBe(false);
+    expect(assignmentGrants(['VIEW_AGREEMENTS'], Permission.DOCUMENT_VIEW)).toBe(true);
+    expect(hasPermission(manager, 'property-a', Permission.AGREEMENT_MANAGE, now)).toBe(true);
+    expect(hasPermission(manager, 'property-a', Permission.FINANCE_VIEW, now)).toBe(false);
   });
 
   it('keeps public callers out of admin APIs', () => {

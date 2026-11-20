@@ -55,8 +55,10 @@ export class TenanciesController {
     @CurrentUser() user: User,
     @ActiveRole() role: PortalRole,
     @Query('propertyId') propertyId?: string,
+    @Query('expiringWithinDays') expiringWithinDays?: string,
   ) {
-    return new ResponseDto('Tenancies', await this.tenancies.list(user.id, role, propertyId));
+    const days = expiringWithinDays ? Number(expiringWithinDays) : undefined;
+    return new ResponseDto('Tenancies', await this.tenancies.list(user.id, role, propertyId, days));
   }
 
   @Get('tenancies/invitations')

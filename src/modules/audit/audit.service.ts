@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { AuditLog } from '../../database/entities';
 
 export interface AuditInput {
@@ -38,6 +38,25 @@ export class AuditService {
       entityId: row.entityId,
       activeRole: row.activeRole,
       outcome: row.outcome,
+      tenancyId: row.tenancyId,
+      createdAt: row.createdAt,
+    }));
+  }
+
+  async listManagerActions(propertyIds: string[]) {
+    if (!propertyIds.length) return [];
+    const rows = await this.logs.find({
+      where: { propertyId: In(propertyIds), activeRole: 'MANAGER' },
+      order: { createdAt: 'DESC' },
+      take: 100,
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      actorUserId: row.actorUserId,
+      action: row.action,
+      entityType: row.entityType,
+      entityId: row.entityId,
+      propertyId: row.propertyId,
       tenancyId: row.tenancyId,
       createdAt: row.createdAt,
     }));

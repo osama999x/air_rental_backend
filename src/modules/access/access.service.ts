@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
 import {
@@ -112,6 +112,7 @@ export class AccessService {
   async assertProperty(userId: string, role: PortalRole | null, propertyId: string) {
     const actor = await this.actor(userId, role);
     if (!canReadProperty(actor, propertyId, new Date())) {
+      if (role === PortalRole.MANAGER) throw new NotFoundException('Property was not found');
       throw new ForbiddenException('You cannot access this property');
     }
     return actor;

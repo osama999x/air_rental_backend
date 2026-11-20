@@ -114,8 +114,14 @@ export class ManagerAssignment extends BaseEntity {
   assigningUserId: string;
 
   @Index()
-  @Column({ type: 'uuid' })
-  managerUserId: string;
+  @Column({ type: 'uuid', nullable: true })
+  managerUserId?: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  invitedEmail?: string | null;
+
+  @Column({ type: 'varchar', length: 180, nullable: true })
+  invitedName?: string | null;
 
   @Column({ type: 'varchar', length: 16 })
   side: AssignmentSide;
@@ -194,6 +200,15 @@ export class TenancyAgreement extends CreatedEntity {
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   documentStorageKey?: string | null;
+
+  @Column({ type: 'varchar', length: 180, nullable: true })
+  fileOriginalName?: string | null;
+
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  fileMimeType?: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  fileSizeBytes?: number | null;
 
   @Column({ type: 'uuid' })
   createdByUserId: string;

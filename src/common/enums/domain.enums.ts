@@ -122,6 +122,7 @@ export enum AssignmentSide {
 export enum AssignmentStatus {
   PENDING = 'PENDING',
   ACTIVE = 'ACTIVE',
+  DECLINED = 'DECLINED',
   REVOKED = 'REVOKED',
   EXPIRED = 'EXPIRED',
 }
@@ -130,6 +131,7 @@ export enum AgreementStatus {
   DRAFT = 'DRAFT',
   ACTIVE = 'ACTIVE',
   SUPERSEDED = 'SUPERSEDED',
+  EXPIRED = 'EXPIRED',
   TERMINATED = 'TERMINATED',
 }
 

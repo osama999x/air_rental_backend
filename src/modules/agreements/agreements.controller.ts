@@ -1,5 +1,7 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import { IsDateString, IsInt, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
 import { ActiveRole, CurrentUser } from '../../common/decorators';
 import { ResponseDto } from '../../common/dto/response';
@@ -13,9 +15,15 @@ class CreateAgreementDto {
   @IsString() monthlyRent: string;
   @IsOptional() @IsString() currencyCode?: string;
   @IsOptional() @IsString() securityDeposit?: string;
-  @IsInt() @Min(1) @Max(28) rentDueDay: number;
+  @Type(() => Number) @IsInt() @Min(1) @Max(28) rentDueDay: number;
   @IsOptional() @IsString() renewalTerms?: string;
   @IsOptional() @IsString() additionalTerms?: string;
+}
+
+class RenewTenancyDto {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(30) years?: number;
+  @IsOptional() @IsDateString() endDate?: string;
+  @IsOptional() @IsString() monthlyRent?: string;
 }
 
 class RenewDto {
@@ -35,19 +43,57 @@ class RentAdjustmentDto {
 export class AgreementsController {
   constructor(private readonly agreements: AgreementsService) {}
 
+  @Get('agreements/expiring')
+  async expiring(@CurrentUser() user: User, @ActiveRole() role: PortalRole) {
+    return new ResponseDto('Agreements expiring soon', await this.agreements.expiring(user.id, role));
+  }
+
   @Post('tenancies/:tenancyId/agreements')
+  @ApiConsumes('application/json', 'multipart/form-data')
+  @UseInterceptors(FileInterceptor('file'))
   async create(
     @CurrentUser() user: User,
     @ActiveRole() role: PortalRole,
     @Param('tenancyId') tenancyId: string,
     @Body() dto: CreateAgreementDto,
+    @UploadedFile() file?: Express.Multer.File,
   ) {
-    return new ResponseDto('Agreement created', await this.agreements.create(user.id, role, tenancyId, dto));
+    return new ResponseDto('Agreement created', await this.agreements.create(user.id, role, tenancyId, dto, file));
+  }
+
+  @Post('tenancies/:tenancyId/agreements/extract')
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file'))
+  async extract(
+    @CurrentUser() user: User,
+    @ActiveRole() role: PortalRole,
+    @Param('tenancyId') tenancyId: string,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    return new ResponseDto('Agreement extraction', await this.agreements.extract(user.id, role, tenancyId, file));
   }
 
   @Get('tenancies/:tenancyId/agreements')
   async list(@CurrentUser() user: User, @ActiveRole() role: PortalRole, @Param('tenancyId') tenancyId: string) {
     return new ResponseDto('Agreements', await this.agreements.listForTenancy(user.id, role, tenancyId));
+  }
+
+  @Post('tenancies/:tenancyId/renewals')
+  @ApiConsumes('application/json', 'multipart/form-data')
+  @UseInterceptors(FileInterceptor('file'))
+  async renewTenancy(
+    @CurrentUser() user: User,
+    @ActiveRole() role: PortalRole,
+    @Param('tenancyId') tenancyId: string,
+    @Body() dto: RenewTenancyDto,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    return new ResponseDto('Agreement renewed', await this.agreements.renewTenancy(user.id, role, tenancyId, dto, file));
+  }
+
+  @Get('agreements/:id/download')
+  download(@CurrentUser() user: User, @ActiveRole() role: PortalRole, @Param('id') id: string) {
+    return this.agreements.download(user.id, role, id);
   }
 
   @Get('tenancies/:tenancyId/renewals')

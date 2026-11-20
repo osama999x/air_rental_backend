@@ -36,6 +36,7 @@ import {
   TenantProfile,
   User,
 } from '../../database/entities';
+import { TENANCY_LIST_PERMISSIONS } from '../access/access.policy';
 import { AccessService } from '../access/access.service';
 import { AuditService } from '../audit/audit.service';
 import { AuthService } from '../auth/auth.service';
@@ -340,6 +341,10 @@ export class TenanciesService implements OnModuleInit {
     if (![TenancyStatus.ACCEPTED, TenancyStatus.PROPOSED].includes(tenancy.status) || !tenancy.tenantUserId) {
       throw new BadRequestException('The tenant must accept the invitation before activation');
     }
+    const agreement = await this.agreements.findOne({
+      where: { tenancyId, status: AgreementStatus.ACTIVE },
+    });
+    if (!agreement) throw new BadRequestException('Create the agreement before activation');
     const property = await this.properties.findOne({ where: { id: tenancy.propertyId } });
     if (property?.tenantInsuranceRequired) {
       const policy = await this.policies.findOne({
@@ -395,7 +400,7 @@ export class TenanciesService implements OnModuleInit {
     return this.tenancies.findOne({ where: { id: tenancyId } });
   }
 
-  async list(userId: string, role: PortalRole | null, propertyId?: string) {
+  async list(userId: string, role: PortalRole | null, propertyId?: string, expiringWithinDays?: number) {
     const actor = await this.access.actor(userId, role);
     let rows: Tenancy[] = [];
     if (role === PortalRole.TENANT) {
@@ -410,7 +415,9 @@ export class TenanciesService implements OnModuleInit {
           .getMany();
       }
     } else {
-      const propertyIds = actor.assignments.filter((item) => item.status === 'ACTIVE').flatMap((item) => item.propertyIds);
+      const propertyIds = actor.assignments
+        .filter((item) => item.status === 'ACTIVE' && item.permissions.some((permission) => TENANCY_LIST_PERMISSIONS.includes(permission)))
+        .flatMap((item) => item.propertyIds);
       if (propertyIds.length) {
         rows = await this.tenancies.createQueryBuilder('tenancy')
           .where('tenancy.propertyId IN (:...ids)', { ids: propertyIds })
@@ -420,12 +427,33 @@ export class TenanciesService implements OnModuleInit {
     const visible = propertyId ? rows.filter((row) => row.propertyId === propertyId) : rows;
     if (!visible.length) return [];
     const properties = await this.properties.find({ where: { id: In(visible.map((row) => row.propertyId)) } });
+    const agreements = await this.agreements.find({
+      where: { tenancyId: In(visible.map((row) => row.id)), status: AgreementStatus.ACTIVE },
+      order: { version: 'DESC' },
+    });
     const byId = new Map(properties.map((property) => [property.id, property]));
-    return visible.map((row) => ({
-      ...row,
-      propertyCode: byId.get(row.propertyId)?.visibleCode ?? null,
-      propertyName: byId.get(row.propertyId)?.name ?? null,
-    }));
+    const agreementByTenancy = new Map<string, TenancyAgreement>();
+    for (const agreement of agreements) {
+      if (!agreementByTenancy.has(agreement.tenancyId)) agreementByTenancy.set(agreement.tenancyId, agreement);
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const horizon = Number.isFinite(expiringWithinDays) && expiringWithinDays && expiringWithinDays > 0
+      ? new Date(Date.now() + expiringWithinDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      : null;
+    return visible.flatMap((row) => {
+      const agreement = agreementByTenancy.get(row.id);
+      const endDate = agreement?.expiryDate ?? row.endDate ?? null;
+      const monthlyRent = agreement?.monthlyRent ?? row.monthlyRent ?? null;
+      if (horizon && (row.status !== TenancyStatus.ACTIVE || !endDate || endDate < today || endDate > horizon)) return [];
+      return [{
+        ...row,
+        endDate,
+        monthlyRent,
+        rent: monthlyRent,
+        propertyCode: byId.get(row.propertyId)?.visibleCode ?? null,
+        propertyName: byId.get(row.propertyId)?.name ?? null,
+      }];
+    });
   }
 
   async get(userId: string, role: PortalRole | null, id: string) {

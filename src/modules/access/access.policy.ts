@@ -1,11 +1,39 @@
 import {
   OWNER_PERMISSIONS,
+  Permission,
   PermissionKey,
   TENANT_MANAGER_FORBIDDEN,
   TENANT_PERMISSIONS,
 } from '../../common/constants/permissions';
 import { AssignmentSide, AssignmentStatus, PortalRole } from '../../common/enums';
 import { compareAmounts } from '../../common/utils/money.util';
+
+export const APP_PERMISSION_GRANTS: Record<string, PermissionKey[]> = {
+  TENANT_DETAILS: [Permission.PROPERTY_VIEW],
+  MANAGE_PROPERTY: [Permission.PROPERTY_MANAGE, Permission.PROPERTY_VIEW],
+  INVITE_TENANTS: [Permission.TENANCY_MANAGE, Permission.PROPERTY_VIEW],
+  VIEW_AGREEMENTS: [Permission.DOCUMENT_VIEW, Permission.PROPERTY_VIEW],
+  MANAGE_AGREEMENTS: [Permission.AGREEMENT_MANAGE, Permission.DOCUMENT_VIEW, Permission.PROPERTY_VIEW],
+  RENT: [Permission.RENT_VIEW, Permission.PROPERTY_VIEW],
+  REPAIRS: [Permission.MAINTENANCE_CREATE, Permission.MAINTENANCE_REVIEW, Permission.PROPERTY_VIEW],
+  OWNER_FINANCES: [Permission.FINANCE_VIEW],
+};
+
+export const TENANCY_LIST_PERMISSIONS = [
+  'TENANT_DETAILS',
+  'INVITE_TENANTS',
+  'VIEW_AGREEMENTS',
+  'MANAGE_AGREEMENTS',
+  Permission.PROPERTY_VIEW,
+  Permission.TENANCY_MANAGE,
+  Permission.DOCUMENT_VIEW,
+  Permission.AGREEMENT_MANAGE,
+];
+
+export function assignmentGrants(permissions: string[], permission: PermissionKey): boolean {
+  if (permissions.includes(permission)) return true;
+  return permissions.some((name) => APP_PERMISSION_GRANTS[name]?.includes(permission));
+}
 
 export interface AssignmentView {
   id: string;
@@ -66,11 +94,7 @@ export function canReadProperty(actor: Actor, propertyId: string, now: Date): bo
   if (actor.activeRole === PortalRole.TENANT) {
     return actor.tenantPropertyIds.includes(propertyId);
   }
-  return activeAssignments(actor, now).some(
-    (assignment) =>
-      assignment.propertyIds.includes(propertyId) &&
-      assignment.permissions.includes('PROPERTY_VIEW'),
-  );
+  return activeAssignments(actor, now).some((assignment) => assignment.propertyIds.includes(propertyId));
 }
 
 export function canReadOwnerFinances(
@@ -86,7 +110,7 @@ export function canReadOwnerFinances(
     (assignment) =>
       assignment.side === AssignmentSide.OWNER &&
       assignment.propertyIds.includes(propertyId) &&
-      assignment.permissions.includes('FINANCE_VIEW'),
+      assignmentGrants(assignment.permissions, Permission.FINANCE_VIEW),
   );
 }
 
@@ -120,7 +144,7 @@ export function hasPermission(
     ) {
       return false;
     }
-    return assignment.permissions.includes(permission);
+    return assignmentGrants(assignment.permissions, permission);
   });
 }
 
