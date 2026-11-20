@@ -151,10 +151,33 @@ export class AgreementsService implements OnModuleInit {
       }
       if (role === PortalRole.TENANT && tenancy.tenantUserId !== userId) continue;
       const property = await this.properties.findOne({ where: { id: row.propertyId } });
+      const uploader = row.createdByUserId
+        ? await this.users.findOne({ where: { id: row.createdByUserId } })
+        : null;
+      const tenant = tenancy.tenantUserId
+        ? await this.users.findOne({ where: { id: tenancy.tenantUserId } })
+        : null;
       visible.push({
-        ...this.present(row),
+        ...this.present(row, uploader),
         propertyCode: property?.visibleCode ?? null,
         propertyName: property?.name ?? null,
+        tenancy: {
+          id: tenancy.id,
+          status: tenancy.status,
+          startDate: tenancy.startDate,
+          endDate: row.expiryDate,
+        },
+        property: property
+          ? {
+              id: property.id,
+              visibleCode: property.visibleCode,
+              name: property.name,
+              status: property.status,
+            }
+          : null,
+        tenant: tenant
+          ? { firstName: tenant.firstName, lastName: tenant.lastName, email: tenant.email }
+          : null,
       });
     }
     return visible;
@@ -398,6 +421,32 @@ export class AgreementsService implements OnModuleInit {
     return rows.map((row) => this.present(row, users.find((user) => user.id === row.createdByUserId)));
   }
 
+  private uploader(uploader?: User | null) {
+    const firstName = uploader?.firstName ?? null;
+    const lastName = uploader?.lastName ?? null;
+    const displayName = [firstName, lastName].filter(Boolean).join(' ') || null;
+    return { firstName, lastName, displayName };
+  }
+
+  private fileFields(row: TenancyAgreement) {
+    if (!row.documentStorageKey) {
+      return { originalName: null, mimeType: null, sizeBytes: null, downloadUrl: null, downloadPath: null, file: null };
+    }
+    const originalName = row.fileOriginalName || 'agreement';
+    const mimeType = row.fileMimeType || 'application/octet-stream';
+    const sizeBytes = row.fileSizeBytes ?? null;
+    const downloadPath = `/api/v1/agreements/${row.id}/download`;
+    const downloadUrl = this.storage.publicUrl(`agreements/${row.id}/download`);
+    return {
+      originalName,
+      mimeType,
+      sizeBytes,
+      downloadUrl,
+      downloadPath,
+      file: { originalName, mimeType, sizeBytes, downloadPath, downloadUrl },
+    };
+  }
+
   private present(row: TenancyAgreement, uploader?: User | null) {
     return {
       id: row.id,
@@ -415,19 +464,8 @@ export class AgreementsService implements OnModuleInit {
       renewalTerms: row.renewalTerms ?? null,
       additionalTerms: row.additionalTerms ?? null,
       createdAt: row.createdAt,
-      uploadedBy: {
-        firstName: uploader?.firstName ?? null,
-        lastName: uploader?.lastName ?? null,
-        displayName: null,
-      },
-      file: row.documentStorageKey
-        ? {
-            originalName: row.fileOriginalName || 'agreement',
-            mimeType: row.fileMimeType || 'application/octet-stream',
-            sizeBytes: row.fileSizeBytes ?? null,
-            downloadPath: `/api/v1/agreements/${row.id}/download`,
-          }
-        : null,
+      uploadedBy: this.uploader(uploader),
+      ...this.fileFields(row),
     };
   }
 
