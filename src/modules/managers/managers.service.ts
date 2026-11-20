@@ -40,22 +40,27 @@ export class ManagersService {
   private readonly tenantGrant = ['VIEW_AGREEMENTS', 'RENT', 'REPAIRS'];
 
   async assign(userId: string, role: PortalRole | null, input: {
-    email: string;
+    email?: string;
+    managerEmail?: string;
     name?: string;
+    side?: string;
     propertyIds: string[];
     permissions: string[];
   }) {
     const side = this.sideFor(role);
+    const email = input.email || input.managerEmail;
+    if (!email) throw new BadRequestException('An email is required');
+    if (input.side && input.side !== side) throw new BadRequestException('side does not match the portal');
     this.assertPermissions(role, input.permissions);
     if (!input.propertyIds.length) throw new BadRequestException('Select at least one property');
     await this.assertProperties(userId, role, input.propertyIds);
-    const email = normalizeEmail(input.email);
-    const manager = await this.users.findOne({ where: { email } });
+    const invitedEmail = normalizeEmail(email);
+    const manager = await this.users.findOne({ where: { email: invitedEmail } });
     const saved = await this.dataSource.transaction(async (managerDb) => {
       const assignment = await managerDb.save(managerDb.create(ManagerAssignment, {
         assigningUserId: userId,
         managerUserId: manager?.id ?? null,
-        invitedEmail: email,
+        invitedEmail,
         invitedName: input.name?.trim() || null,
         side,
         status: AssignmentStatus.PENDING,
@@ -73,7 +78,7 @@ export class ManagersService {
       return assignment;
     });
     await this.mail.send(
-      email,
+      invitedEmail,
       'Air Rental manager invitation',
       'You have been invited to manage properties in Air Rental. Open the app and accept the invitation.',
     );

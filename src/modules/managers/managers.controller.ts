@@ -8,8 +8,10 @@ import { User } from '../../database/entities';
 import { ManagersService } from './managers.service';
 
 class AssignManagerDto {
-  @IsEmail() email: string;
+  @IsOptional() @IsEmail() email?: string;
+  @IsOptional() @IsEmail() managerEmail?: string;
   @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() side?: string;
   @IsArray() @IsUUID('4', { each: true }) propertyIds: string[];
   @IsArray() @IsString({ each: true }) permissions: string[];
 }
